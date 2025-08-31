@@ -886,7 +886,7 @@
         function spawnEnemy() {
             if (game.enemies.length >= config.enemies.maxCount) return;
             
-            const types = ['red', 'blue', 'white', 'black'];
+            const types = ['red', 'blue', 'white', 'black', 'largered', 'rotating', 'teleport', 'snake', 'yellow', 'control'];
             const type = types[Math.floor(Math.random() * types.length)];
             
             // 在玩家周围一定范围内生成敌人
@@ -1933,7 +1933,7 @@
                             );
                             
                             if (distanceToPlayer > 200) { // 至少距离玩家200像素
-                                const types = ['red', 'blue', 'white', 'black', 'largered'];
+                                const types = ['red', 'blue', 'white', 'black', 'largered', 'rotating', 'teleport', 'snake', 'yellow', 'control'];
                                 const type = types[Math.floor(Math.random() * types.length)];
                                 createEnemy(spawnX, spawnY, type);
                                 
