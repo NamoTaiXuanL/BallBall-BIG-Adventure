@@ -1142,6 +1142,7 @@
             
             // 碰撞检测 - 使用通用函数简化代码
             let onPlatform = false;
+            let onLadder = false;
             
             // 检测所有平台类型的碰撞（除了砖块）
             const allPlatforms = [...game.platforms, ...game.groundBlocks, ...game.mainlandBlocks, ...game.stoneBlocks];
@@ -1260,7 +1261,6 @@
             }
             
             // 梯子交互
-            let onLadder = false;
             for (const ladder of game.ladders) {
                 if (
                     game.player.x + game.player.radius > ladder.x &&
