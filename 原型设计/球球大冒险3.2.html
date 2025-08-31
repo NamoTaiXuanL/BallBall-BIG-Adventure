@@ -163,6 +163,7 @@
             gameHeight: 0,
             lastTime: 0,
             deltaTime: 0,
+            frameCount: 0,          // 帧计数器，用于性能优化
             spawnTimer: 0,
             chargeJumpTimer: 0,
             isChargingJump: false,
@@ -1090,6 +1091,7 @@
         function gameLoop(timestamp) {
             game.deltaTime = (timestamp - game.lastTime) / 16.67; // 标准化到60fps
             game.lastTime = timestamp;
+            game.frameCount++; // 增加帧计数器
             
             update();
             render();
@@ -1174,6 +1176,14 @@
                 game.player.stamina = Math.min(
                     game.player.maxStamina,
                     game.player.stamina + config.player.staminaRecovery * game.deltaTime
+                );
+            }
+            
+            // 恢复魔法值
+            if (game.player.mana < game.player.maxMana) {
+                game.player.mana = Math.min(
+                    game.player.maxMana,
+                    game.player.mana + 0.3 * game.deltaTime // 魔法值恢复速度
                 );
             }
             
@@ -1556,40 +1566,47 @@
                 game.friendlyBalls.push(friendly);
             }
             
-            // AOE攻击
-            if (game.mouse.right && game.player.aoeAttackCooldown <= 0) {
-                // 创建AOE攻击效果
-                game.player.aoeAttackCooldown = 180; // 3秒冷却
+            // AOE攻击（冲击波技能）
+            if (game.mouse.right && game.player.aoeAttackCooldown <= 0 && game.player.mana >= 20) {
+                // 消耗魔法值
+                game.player.mana -= 20;
                 
-                // 创建扩散圈圈效果
-                for (let i = 0; i < 3; i++) {
+                // 创建AOE攻击效果
+                game.player.aoeAttackCooldown = 120; // 2秒冷却（减少冷却时间）
+                
+                // 创建更强的扩散圈圈效果
+                for (let i = 0; i < 5; i++) {
                     game.aoeRings.push({
                         x: game.player.x,
                         y: game.player.y,
                         radius: 0,
-                        maxRadius: 100 + i * 50,
-                        speed: 3 + i * 0.5,
-                        damage: 25,
-                        lifetime: 60,
-                        age: i * 10 // 延迟生成
+                        maxRadius: 150 + i * 60, // 增加范围
+                        speed: 4 + i * 0.8, // 增加扩散速度
+                        damage: 35 + i * 5, // 增加伤害
+                        lifetime: 80, // 增加持续时间
+                        age: i * 8 // 延迟生成
                     });
                 }
                 
-                // 驱散附近怪物
+                // 驱散附近怪物（增强效果）
                 for (const enemy of game.enemies) {
                     const dx = enemy.x - game.player.x;
                     const dy = enemy.y - game.player.y;
                     const distance = Math.sqrt(dx * dx + dy * dy);
                     
-                    if (distance < 150) {
-                        // 造成伤害
-                        enemy.health -= 25;
+                    if (distance < 250) { // 增加影响范围
+                        // 造成更高伤害
+                        const damageMultiplier = Math.max(0.3, 1 - distance / 250); // 距离越近伤害越高
+                        enemy.health -= Math.floor(40 * damageMultiplier);
                         
-                        // 击退效果
-                        const knockback = 15;
+                        // 更强的击退效果
+                        const knockback = Math.max(20, 35 - distance / 10); // 距离越近击退越强
                         const angle = Math.atan2(dy, dx);
                         enemy.x += Math.cos(angle) * knockback;
                         enemy.y += Math.sin(angle) * knockback;
+                        
+                        // 添加眩晕效果
+                        enemy.stunned = 30; // 眩晕30帧
                         
                         // 添加击中粒子效果
                         for (let j = 0; j < 8; j++) {
@@ -2097,6 +2114,15 @@
         function updateEnemies() {
             for (let i = game.enemies.length - 1; i >= 0; i--) {
                 const enemy = game.enemies[i];
+                
+                // 处理眩晕状态
+                if (enemy.stunned > 0) {
+                    enemy.stunned--;
+                    // 眩晕时不能移动和攻击
+                    enemy.dx = 0;
+                    enemy.dy = 0;
+                    continue;
+                }
                 
                 // 计算与玩家的距离
                 const dx = game.player.x - enemy.x;
@@ -3226,12 +3252,15 @@
         
         // 更新粒子效果
         function updateParticles() {
-            // 限制最大粒子数量，防止性能问题
-            const maxParticles = 200;
+            // 进一步限制最大粒子数量，防止性能问题
+            const maxParticles = 150; // 减少最大粒子数
             if (game.particles.length > maxParticles) {
                 // 移除最老的粒子
                 game.particles.splice(0, game.particles.length - maxParticles);
             }
+            
+            // 每隔几帧才更新粒子，减少计算负担
+            if (game.frameCount % 2 !== 0) return;
             
             for (let i = game.particles.length - 1; i >= 0; i--) {
                 const p = game.particles[i];

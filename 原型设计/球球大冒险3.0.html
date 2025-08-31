@@ -165,7 +165,10 @@
             deltaTime: 0,
             spawnTimer: 0,
             chargeJumpTimer: 0,
-            isChargingJump: false
+            isChargingJump: false,
+            needForceSpawn: false,  // 强制生成怪物标记
+            densityCheckTimer: 0,   // 密度检查计时器
+            cleanupTimer: 0         // 清理计时器
         };
 
         // 初始化游戏
@@ -320,39 +323,62 @@
                 }
             }
             
-            // 清理远离玩家的敌人以优化性能，但保持区域密度
-            const cleanupDistance = 5000; // 增加清理距离，确保刷怪点有足够时间激活
-            const minEnemiesPerRegion = 3; // 每个区域最少保持的敌人数量
-            const regionSize = 800; // 区域大小
+            // 智能怪物清理系统 - 与强制密度控制协调
+            // 性能优化：降低清理频率
+            if (!game.cleanupTimer) game.cleanupTimer = 0;
+            game.cleanupTimer += game.deltaTime;
+            if (game.cleanupTimer < 3.0) return; // 每3秒清理一次
+            game.cleanupTimer = 0;
             
-            // 统计各区域的敌人数量
-            const regionEnemyCount = new Map();
-            for (const enemy of game.enemies) {
-                const regionX = Math.floor(enemy.x / regionSize);
-                const regionY = Math.floor(enemy.y / regionSize);
-                const regionKey = `${regionX},${regionY}`;
-                regionEnemyCount.set(regionKey, (regionEnemyCount.get(regionKey) || 0) + 1);
-            }
+            const screenWidth = game.canvas.width;
+            const screenHeight = game.canvas.height;
+            const maxCleanupDistance = Math.max(screenWidth, screenHeight) * 5; // 减少到5个屏幕距离
+            const minKeepDistance = Math.max(screenWidth, screenHeight) * 3.5; // 减少到3.5个屏幕范围
             
-            for (let i = game.enemies.length - 1; i >= 0; i--) {
-                const enemy = game.enemies[i];
-                const dx = enemy.x - game.player.x;
-                const dy = enemy.y - game.player.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                
-                // 如果敌人距离玩家超过清理距离
-                if (distance > cleanupDistance) {
-                    const regionX = Math.floor(enemy.x / regionSize);
-                    const regionY = Math.floor(enemy.y / regionSize);
-                    const regionKey = `${regionX},${regionY}`;
-                    const currentCount = regionEnemyCount.get(regionKey) || 0;
-                    
-                    // 只有当该区域敌人数量超过最小值时才清理
-                    if (currentCount > minEnemiesPerRegion) {
-                        game.enemies.splice(i, 1);
-                        regionEnemyCount.set(regionKey, currentCount - 1);
+            // 按距离排序所有敌人
+            const enemiesWithDistance = game.enemies.map(enemy => {
+                const distance = Math.sqrt(
+                    (enemy.x - game.player.x) ** 2 + (enemy.y - game.player.y) ** 2
+                );
+                return { enemy, distance };
+            }).sort((a, b) => b.distance - a.distance); // 从远到近排序
+            
+            // 清理策略：保持合理的怪物数量分布
+            const toRemove = [];
+            let keptInRange = 0;
+            
+            for (const { enemy, distance } of enemiesWithDistance) {
+                // 超过最大清理距离的必须清理
+                if (distance > maxCleanupDistance) {
+                    toRemove.push(enemy);
+                }
+                // 在保持范围内的优先保留
+                else if (distance <= minKeepDistance) {
+                    keptInRange++;
+                }
+                // 中等距离的根据总数量决定是否保留
+                else if (distance > minKeepDistance && distance <= maxCleanupDistance) {
+                    // 如果总怪物数量过多，清理一些中等距离的怪物
+                    if (game.enemies.length > config.enemies.maxCount * 1.2) {
+                        // 优先清理血量较少的怪物
+                        if (enemy.health <= enemy.maxHealth * 0.3) {
+                            toRemove.push(enemy);
+                        }
                     }
                 }
+            }
+            
+            // 执行清理
+            for (const enemy of toRemove) {
+                const index = game.enemies.indexOf(enemy);
+                if (index !== -1) {
+                    game.enemies.splice(index, 1);
+                }
+            }
+            
+            // 如果清理后怪物数量过少，标记需要强制生成
+            if (keptInRange < 15) {
+                game.needForceSpawn = true;
             }
         }
         
@@ -775,6 +801,19 @@
         
         // 更新怪物生成点
         function updateSpawnPoints() {
+            // 清理距离玩家过远的生成点，防止内存泄漏
+            const cleanupRadius = 6000;
+            for (let i = game.spawnPoints.length - 1; i >= 0; i--) {
+                const spawnPoint = game.spawnPoints[i];
+                const dx = spawnPoint.x - game.player.x;
+                const dy = spawnPoint.y - game.player.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance > cleanupRadius) {
+                    game.spawnPoints.splice(i, 1);
+                }
+            }
+            
             for (const spawnPoint of game.spawnPoints) {
                 const dx = game.player.x - spawnPoint.x;
                 const dy = game.player.y - spawnPoint.y;
@@ -1078,15 +1117,19 @@
             // 动态生成新的生成点
             generateNewSpawnPoints();
             
-            // 动态敌人生成 - 基于玩家移动速度调整
+            // 强制怪物密度控制 - 确保九个屏幕范围内必须存在怪物
+            enforceMonsterDensity();
+            
+            // 动态敌人生成 - 基于玩家移动速度调整(作为补充生成)
             game.spawnTimer += game.deltaTime;
             const playerSpeed = Math.sqrt(game.player.dx * game.player.dx + game.player.dy * game.player.dy);
-            const speedMultiplier = Math.max(0.5, Math.min(2.0, playerSpeed / 5)); // 根据玩家速度调整生成频率
+            const speedMultiplier = Math.max(0.5, Math.min(2.0, playerSpeed / 5));
             const dynamicSpawnRate = config.enemies.spawnRate * speedMultiplier;
             
-            if (game.spawnTimer >= 0.8) { // 减少生成间隔
+            if (game.spawnTimer >= 0.5) { // 更频繁的检查
                 game.spawnTimer = 0;
-                if (Math.random() < dynamicSpawnRate * 0.5 && game.enemies.length < config.enemies.maxCount) {
+                // 只有在怪物总数不足时才进行补充生成
+                if (Math.random() < dynamicSpawnRate && game.enemies.length < config.enemies.maxCount * 0.8) {
                     spawnEnemy();
                 }
             }
@@ -1146,8 +1189,7 @@
             generateBubblePowerups();
             updateBubblePowerups();
             
-            // 维持区域怪物密度
-            maintainRegionalEnemyDensity();
+            // 维持区域怪物密度 - 已在上方调用，避免重复
         }
         
         // 更新冲刺状态
@@ -1810,6 +1852,20 @@
         
         // 更新泡泡道具
         function updateBubblePowerups() {
+            // 清理距离玩家过远的泡泡道具
+            const cleanupRadius = 4000;
+            for (let i = game.bubblePowerups.length - 1; i >= 0; i--) {
+                const bubble = game.bubblePowerups[i];
+                const dx = bubble.x - game.player.x;
+                const dy = bubble.y - game.player.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance > cleanupRadius) {
+                    game.bubblePowerups.splice(i, 1);
+                    continue;
+                }
+            }
+            
             for (let i = game.bubblePowerups.length - 1; i >= 0; i--) {
                 const bubble = game.bubblePowerups[i];
                 
@@ -1887,58 +1943,149 @@
             }
         }
         
-        // 维持区域怪物密度
-        function maintainRegionalEnemyDensity() {
-            const regionSize = 800; // 区域大小
-            const minEnemiesPerRegion = 3; // 每个区域最少保持的敌人数量
-            const maxEnemiesPerRegion = 8; // 每个区域最多敌人数量
-            const playerRegionRange = 3; // 检查玩家周围3x3区域
+        // 强制怪物密度控制系统 - 确保九个屏幕范围内必须存在怪物
+         function enforceMonsterDensity() {
+             // 性能优化：降低调用频率
+             if (!game.densityCheckTimer) game.densityCheckTimer = 0;
+             game.densityCheckTimer += game.deltaTime;
+             if (game.densityCheckTimer < 2.0) return; // 每2秒检查一次
+             game.densityCheckTimer = 0;
+             
+             const screenWidth = game.canvas.width;
+             const screenHeight = game.canvas.height;
+             const regionSize = Math.max(screenWidth, screenHeight);
+             const baseMinMonstersPerScreen = 3; // 基础最少怪物数
+             const baseMaxMonstersPerScreen = 10; // 基础最多怪物数
+             const forceSpawnRange = 3; // 减少检查范围到3x3屏幕
+             
+             // 如果被标记需要强制生成，增加生成强度
+             const forceSpawnMultiplier = game.needForceSpawn ? 1.3 : 1.0;
+             
+             // 创建密度区域系统 - 基于位置的伪随机密度
+             function getDensityMultiplier(screenX, screenY) {
+                 // 使用屏幕坐标生成稳定的伪随机数
+                 const seed = Math.abs(screenX * 73 + screenY * 37) % 1000;
+                 const random = (seed / 1000);
+                 
+                 // 创建不均匀分布：30%高密度区域，40%中密度区域，30%低密度区域
+                 if (random < 0.3) {
+                     return 1.8; // 高密度区域
+                 } else if (random < 0.7) {
+                     return 1.0; // 中密度区域
+                 } else {
+                     return 0.4; // 低密度区域
+                 }
+             }
             
-            // 计算玩家所在区域
-            const playerRegionX = Math.floor(game.player.x / regionSize);
-            const playerRegionY = Math.floor(game.player.y / regionSize);
+            // 计算玩家所在屏幕区域
+            const playerScreenX = Math.floor(game.player.x / regionSize);
+            const playerScreenY = Math.floor(game.player.y / regionSize);
             
-            // 统计各区域的敌人数量
-            const regionEnemyCount = new Map();
+            // 统计各屏幕区域的怪物数量
+            const screenMonsterCount = new Map();
             for (const enemy of game.enemies) {
-                const regionX = Math.floor(enemy.x / regionSize);
-                const regionY = Math.floor(enemy.y / regionSize);
-                const regionKey = `${regionX},${regionY}`;
-                regionEnemyCount.set(regionKey, (regionEnemyCount.get(regionKey) || 0) + 1);
+                const screenX = Math.floor(enemy.x / regionSize);
+                const screenY = Math.floor(enemy.y / regionSize);
+                const screenKey = `${screenX},${screenY}`;
+                screenMonsterCount.set(screenKey, (screenMonsterCount.get(screenKey) || 0) + 1);
             }
             
-            // 检查玩家周围区域的敌人密度
-            for (let dx = -playerRegionRange; dx <= playerRegionRange; dx++) {
-                for (let dy = -playerRegionRange; dy <= playerRegionRange; dy++) {
-                    const regionX = playerRegionX + dx;
-                    const regionY = playerRegionY + dy;
-                    const regionKey = `${regionX},${regionY}`;
-                    const currentCount = regionEnemyCount.get(regionKey) || 0;
+            let totalForcedSpawns = 0;
+            
+            // 强制检查玩家周围的屏幕区域
+            for (let dx = -forceSpawnRange; dx <= forceSpawnRange; dx++) {
+                for (let dy = -forceSpawnRange; dy <= forceSpawnRange; dy++) {
+                    const screenX = playerScreenX + dx;
+                    const screenY = playerScreenY + dy;
+                    const screenKey = `${screenX},${screenY}`;
+                    const currentCount = screenMonsterCount.get(screenKey) || 0;
                     
-                    // 如果该区域敌人数量不足且总敌人数未达上限
-                    if (currentCount < minEnemiesPerRegion && game.enemies.length < config.enemies.maxCount) {
-                        const needToSpawn = Math.min(
-                            minEnemiesPerRegion - currentCount,
-                            config.enemies.maxCount - game.enemies.length
-                        );
+                    // 计算到玩家的屏幕距离
+                    const screenDistance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    // 获取该区域的密度倍数
+                    const densityMultiplier = getDensityMultiplier(screenX, screenY);
+                    
+                    // 根据距离和密度区域调整怪物数量
+                    let requiredMinMonsters, requiredMaxMonsters;
+                    if (screenDistance <= 1.5) { // 玩家附近
+                        requiredMinMonsters = Math.floor(baseMinMonstersPerScreen * densityMultiplier * forceSpawnMultiplier * 1.5);
+                        requiredMaxMonsters = Math.floor(baseMaxMonstersPerScreen * densityMultiplier * 1.2);
+                    } else if (screenDistance <= 2.5) { // 中距离
+                        requiredMinMonsters = Math.floor(baseMinMonstersPerScreen * densityMultiplier * forceSpawnMultiplier);
+                        requiredMaxMonsters = Math.floor(baseMaxMonstersPerScreen * densityMultiplier);
+                    } else { // 远距离
+                        requiredMinMonsters = Math.floor(baseMinMonstersPerScreen * densityMultiplier * forceSpawnMultiplier * 0.6);
+                        requiredMaxMonsters = Math.floor(baseMaxMonstersPerScreen * densityMultiplier * 0.8);
+                    }
+                    
+                    // 确保最小值合理
+                    requiredMinMonsters = Math.max(1, requiredMinMonsters);
+                    requiredMaxMonsters = Math.max(requiredMinMonsters + 2, requiredMaxMonsters);
+                    
+                    // 强制生成怪物如果数量不足
+                    if (currentCount < requiredMinMonsters) {
+                        const needToSpawn = Math.min(requiredMinMonsters - currentCount, 3); // 限制单次生成数量
                         
-                        // 在该区域生成敌人
-                        for (let i = 0; i < needToSpawn; i++) {
-                            const spawnX = regionX * regionSize + Math.random() * regionSize;
-                            const spawnY = regionY * regionSize + Math.random() * regionSize;
+                        for (let i = 0; i < needToSpawn && totalForcedSpawns < 15; i++) { // 降低总生成限制
+                            // 在该屏幕区域内随机生成位置
+                            const spawnX = screenX * regionSize + Math.random() * regionSize;
+                            const spawnY = screenY * regionSize + Math.random() * regionSize;
                             
-                            // 确保不在玩家太近的地方生成
+                            // 确保不在玩家太近的地方生成(至少150像素)
                             const distanceToPlayer = Math.sqrt(
                                 (spawnX - game.player.x) ** 2 + (spawnY - game.player.y) ** 2
                             );
                             
-                            if (distanceToPlayer > 200) { // 至少距离玩家200像素
-                                const types = ['red', 'blue', 'white', 'black', 'largered', 'rotating', 'teleport', 'snake', 'yellow', 'control'];
-                                const type = types[Math.floor(Math.random() * types.length)];
-                                createEnemy(spawnX, spawnY, type);
+                            if (distanceToPlayer > 150) {
+                                // 根据距离选择怪物类型
+                                let monsterTypes;
+                                if (screenDistance <= 1) {
+                                    // 近距离：更多样化的怪物
+                                    monsterTypes = ['red', 'blue', 'white', 'black', 'largered', 'rotating', 'teleport', 'snake', 'yellow', 'control'];
+                                } else if (screenDistance <= 2) {
+                                    // 中距离：平衡的怪物组合
+                                    monsterTypes = ['red', 'blue', 'black', 'largered', 'teleport', 'yellow'];
+                                } else {
+                                    // 远距离：基础怪物为主
+                                    monsterTypes = ['red', 'blue', 'white', 'black'];
+                                }
+                                
+                                // 精英怪物特殊生成逻辑
+                                let selectedType;
+                                if (Math.random() < 0.03 && screenDistance >= 1.5) { // 3%概率生成精英怪物，且在较远位置
+                                    selectedType = 'elite';
+                                } else {
+                                    selectedType = monsterTypes[Math.floor(Math.random() * monsterTypes.length)];
+                                }
+                                
+                                createEnemy(spawnX, spawnY, selectedType);
                                 
                                 // 更新区域计数
-                                regionEnemyCount.set(regionKey, (regionEnemyCount.get(regionKey) || 0) + 1);
+                                screenMonsterCount.set(screenKey, (screenMonsterCount.get(screenKey) || 0) + 1);
+                                totalForcedSpawns++;
+                            }
+                        }
+                    }
+                    
+                    // 防止某个区域怪物过多
+                    else if (currentCount > requiredMaxMonsters) {
+                        // 移除该区域多余的怪物(优先移除较弱的)
+                        const regionEnemies = game.enemies.filter(enemy => {
+                            const eScreenX = Math.floor(enemy.x / regionSize);
+                            const eScreenY = Math.floor(enemy.y / regionSize);
+                            return eScreenX === screenX && eScreenY === screenY;
+                        });
+                        
+                        // 按血量排序，移除血量较少的
+                        regionEnemies.sort((a, b) => a.health - b.health);
+                        const toRemove = Math.min(currentCount - requiredMaxMonsters, 2); // 限制单次清理数量
+                        
+                        for (let i = 0; i < toRemove && regionEnemies.length > 0; i++) {
+                            const enemyToRemove = regionEnemies[i];
+                            const index = game.enemies.indexOf(enemyToRemove);
+                            if (index !== -1) {
+                                game.enemies.splice(index, 1);
                             }
                         }
                     }
@@ -2550,7 +2697,7 @@
                 proj.y += proj.dy;
                 
                 // 生命周期
-                proj.lifetime -= game.deltaTime;
+                proj.lifetime--;
                 if (proj.lifetime <= 0) {
                     game.projectiles.splice(i, 1);
                     continue;
@@ -3079,6 +3226,13 @@
         
         // 更新粒子效果
         function updateParticles() {
+            // 限制最大粒子数量，防止性能问题
+            const maxParticles = 200;
+            if (game.particles.length > maxParticles) {
+                // 移除最老的粒子
+                game.particles.splice(0, game.particles.length - maxParticles);
+            }
+            
             for (let i = game.particles.length - 1; i >= 0; i--) {
                 const p = game.particles[i];
                 
@@ -3095,20 +3249,30 @@
         
         // 创建爆炸效果
         function createExplosion(x, y, radius, damage) {
-            // 粒子效果
-            for (let i = 0; i < 30; i++) {
-                const angle = Math.random() * Math.PI * 2;
-                const speed = Math.random() * 5 + 2;
-                
-                game.particles.push({
-                    x: x,
-                    y: y,
-                    dx: Math.cos(angle) * speed,
-                    dy: Math.sin(angle) * speed,
-                    radius: Math.random() * 3 + 1,
-                    color: '#FF5722',
-                    lifetime: 30 + Math.random() * 30
-                });
+            // 检查是否在屏幕附近
+            const screenBuffer = 100;
+            const inView = x > game.camera.x - screenBuffer && 
+                          x < game.camera.x + game.canvas.width + screenBuffer &&
+                          y > game.camera.y - screenBuffer && 
+                          y < game.camera.y + game.canvas.height + screenBuffer;
+            
+            if (inView) {
+                // 减少爆炸粒子数量
+                const particleCount = Math.min(15, Math.max(8, Math.floor(radius / 5)));
+                for (let i = 0; i < particleCount; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = Math.random() * 5 + 2;
+                    
+                    game.particles.push({
+                        x: x,
+                        y: y,
+                        dx: Math.cos(angle) * speed,
+                        dy: Math.sin(angle) * speed,
+                        radius: Math.random() * 3 + 1,
+                        color: '#FF5722',
+                        lifetime: 20 + Math.random() * 20 // 减少生命周期
+                    });
+                }
             }
             
             // 伤害范围内的敌人
@@ -3180,7 +3344,19 @@
         
         // 创建粒子效果
         function createParticles(x, y, radius, color) {
-            for (let i = 0; i < 15; i++) {
+            // 检查是否在屏幕附近，避免生成过多屏幕外粒子
+            const screenBuffer = 100;
+            const inView = x > game.camera.x - screenBuffer && 
+                          x < game.camera.x + game.canvas.width + screenBuffer &&
+                          y > game.camera.y - screenBuffer && 
+                          y < game.camera.y + game.canvas.height + screenBuffer;
+            
+            if (!inView) return; // 屏幕外不生成粒子
+            
+            // 根据半径调整粒子数量，减少总体粒子生成
+            const particleCount = Math.min(8, Math.max(3, Math.floor(radius / 3)));
+            
+            for (let i = 0; i < particleCount; i++) {
                 const angle = Math.random() * Math.PI * 2;
                 const speed = Math.random() * 3 + 1;
                 
@@ -3191,7 +3367,7 @@
                     dy: Math.sin(angle) * speed,
                     radius: Math.random() * 2 + 1,
                     color: color,
-                    lifetime: 20 + Math.random() * 20
+                    lifetime: 15 + Math.random() * 15 // 减少生命周期
                 });
             }
         }

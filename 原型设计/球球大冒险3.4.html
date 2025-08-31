@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>球球大冒险 3.0 - 地形系统版</title>
+    <title>球球大冒险 3.4 - 性能优化版</title>
     <style>
         body {
             margin: 0;
@@ -157,6 +157,13 @@
             floatingTexts: [], // 浮动文本显示
             aoeRings: [], // AOE攻击圈圈效果
             bubblePowerups: [], // 泡泡道具
+            // 对象池系统
+            objectPools: {
+                projectiles: [],
+                particles: [],
+                damageNumbers: [],
+                experienceNumbers: []
+            },
             camera: { x: 0, y: 0, targetX: 0, targetY: 0 },
             score: 0,
             gameWidth: 0,
@@ -164,12 +171,93 @@
             lastTime: 0,
             deltaTime: 0,
             frameCount: 0,          // 帧计数器，用于性能优化
+            currentFPS: 60,         // 当前帧率
+            performanceMode: 'medium', // 性能模式：'low', 'medium', 'high'
             spawnTimer: 0,
             chargeJumpTimer: 0,
             isChargingJump: false,
             needForceSpawn: false,  // 强制生成怪物标记
             densityCheckTimer: 0,   // 密度检查计时器
             cleanupTimer: 0         // 清理计时器
+        };
+
+        // 对象池管理系统
+        const ObjectPool = {
+            // 获取投射物对象
+            getProjectile: function() {
+                if (game.objectPools.projectiles.length > 0) {
+                    return game.objectPools.projectiles.pop();
+                }
+                return {
+                    x: 0, y: 0, dx: 0, dy: 0, radius: 0, damage: 0, 
+                    owner: '', lifetime: 0, active: true
+                };
+            },
+            
+            // 回收投射物对象
+            recycleProjectile: function(projectile) {
+                projectile.active = false;
+                if (game.objectPools.projectiles.length < 50) {
+                    game.objectPools.projectiles.push(projectile);
+                }
+            },
+            
+            // 获取粒子对象
+            getParticle: function() {
+                if (game.objectPools.particles.length > 0) {
+                    return game.objectPools.particles.pop();
+                }
+                return {
+                    x: 0, y: 0, dx: 0, dy: 0, size: 0, color: '', 
+                    life: 0, maxLife: 0, alpha: 1, active: true
+                };
+            },
+            
+            // 回收粒子对象
+            recycleParticle: function(particle) {
+                particle.active = false;
+                if (game.objectPools.particles.length < 100) {
+                    game.objectPools.particles.push(particle);
+                }
+            },
+            
+            // 获取伤害数值对象
+            getDamageNumber: function() {
+                if (game.objectPools.damageNumbers.length > 0) {
+                    return game.objectPools.damageNumbers.pop();
+                }
+                return {
+                    x: 0, y: 0, damage: 0, alpha: 1, 
+                    lifetime: 0, active: true
+                };
+            },
+            
+            // 回收伤害数值对象
+            recycleDamageNumber: function(damageNumber) {
+                damageNumber.active = false;
+                if (game.objectPools.damageNumbers.length < 30) {
+                    game.objectPools.damageNumbers.push(damageNumber);
+                }
+            },
+            
+            // 获取经验数值对象
+            getExperienceNumber: function() {
+                if (game.objectPools.experienceNumbers.length > 0) {
+                    return game.objectPools.experienceNumbers.pop();
+                }
+                return {
+                    x: 0, y: 0, exp: 0, alpha: 1, 
+                    lifetime: 0, active: true
+                };
+            },
+            
+            // 回收经验数值对象
+            recycleExperienceNumber: function(expNumber) {
+                expNumber.active = false;
+                if (game.objectPools.experienceNumbers.length < 30) {
+                    game.objectPools.experienceNumbers.push(expNumber);
+                }
+            }
         };
 
         // 初始化游戏
@@ -820,6 +908,12 @@
                 const dy = game.player.y - spawnPoint.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
                 
+                // 性能优化：只处理玩家附近的生成点
+                const maxSpawnDistance = 1200; // 最大生成距离
+                if (distance > maxSpawnDistance) {
+                    continue; // 跳过远距离生成点
+                }
+                
                 // 减少冷却时间
                 if (spawnPoint.cooldownTimer > 0) {
                     spawnPoint.cooldownTimer -= game.deltaTime;
@@ -842,16 +936,16 @@
                 // 根据密度调整最大敌人数
                 let maxEnemies = config.spawnPoints.maxEnemiesPerPoint;
                 if (spawnPoint.density === 'high') {
-                    maxEnemies = 5;
+                    maxEnemies = 6; // 增加高密度生成点的敌人数量
                 } else if (spawnPoint.density === 'low') {
-                    maxEnemies = 2;
+                    maxEnemies = 3; // 增加低密度生成点的敌人数量
                 }
                 
                 // 激活的生成点生成敌人 - 增加基于玩家速度的生成频率
                 if (spawnPoint.isActive && spawnPoint.enemiesSpawned < maxEnemies && game.enemies.length < config.enemies.maxCount) {
                     const playerSpeed = Math.sqrt(game.player.dx * game.player.dx + game.player.dy * game.player.dy);
-                    const baseSpawnChance = 0.3; // 增加基础生成概率
-                    const speedBonus = Math.min(0.2, playerSpeed * 0.05); // 增加速度奖励
+                    const baseSpawnChance = 0.4; // 进一步增加基础生成概率
+                    const speedBonus = Math.min(0.3, playerSpeed * 0.08); // 增加速度奖励
                     const spawnChance = baseSpawnChance + speedBonus;
                     
                     if (Math.random() < spawnChance) {
@@ -865,15 +959,15 @@
                                 const dx = enemy.x - spawnPoint.x;
                                 const dy = enemy.y - spawnPoint.y;
                                 const dist = Math.sqrt(dx * dx + dy * dy);
-                                return dist < 500; // 500像素范围内的敌人
+                                return dist < 600; // 扩大检查范围
                             });
                             
-                            // 如果附近敌人少于3个，立即重新激活
-                            if (nearbyEnemies.length < 3) {
+                            // 如果附近敌人少于4个，立即重新激活
+                            if (nearbyEnemies.length < 4) {
                                 spawnPoint.enemiesSpawned = 0; // 重置计数
                             } else {
                                 spawnPoint.isActive = false;
-                                spawnPoint.cooldownTimer = config.spawnPoints.reactivationDelay; // 使用较短的重新激活延迟
+                                spawnPoint.cooldownTimer = config.spawnPoints.reactivationDelay * 0.7; // 减少冷却时间
                                 spawnPoint.enemiesSpawned = 0;
                             }
                         }
@@ -1087,11 +1181,32 @@
             game.enemies.push(enemy);
         }
         
-        // 游戏主循环
+        // 优化的游戏主循环 - 支持更高帧率
         function gameLoop(timestamp) {
-            game.deltaTime = (timestamp - game.lastTime) / 16.67; // 标准化到60fps
+            // 计算实际帧时间，支持120fps+
+            const actualDeltaTime = timestamp - game.lastTime;
+            game.deltaTime = actualDeltaTime / 16.67; // 标准化，但保持实际时间精度
             game.lastTime = timestamp;
             game.frameCount++; // 增加帧计数器
+            
+            // 帧率统计（每60帧计算一次）
+            if (game.frameCount % 60 === 0) {
+                game.currentFPS = Math.round(1000 / actualDeltaTime);
+            }
+            
+            // 动态调整更新频率以充分利用CPU
+            const targetFPS = 120; // 目标帧率提升到120fps
+            const frameTime = 1000 / targetFPS;
+            
+            if (actualDeltaTime < frameTime * 0.8) {
+                // 如果帧时间充足，增加游戏复杂度
+                game.performanceMode = 'high';
+            } else if (actualDeltaTime > frameTime * 1.2) {
+                // 如果帧时间不足，降低复杂度
+                game.performanceMode = 'low';
+            } else {
+                game.performanceMode = 'medium';
+            }
             
             update();
             render();
@@ -1099,19 +1214,28 @@
             requestAnimationFrame(gameLoop);
         }
         
-        // 更新游戏状态
+        // 更新游戏状态 - 根据性能模式动态调整
         function update() {
-            // 更新玩家
+            // 更新玩家（始终执行）
             updatePlayer();
             
-            // 更新相机
+            // 更新相机（始终执行）
             updateCamera();
+            
+            // 根据性能模式调整更新频率
+            const performanceMultiplier = {
+                'low': 0.5,
+                'medium': 1.0,
+                'high': 1.5
+            }[game.performanceMode];
             
             // 检查并生成下方平台
             generatePlatformBelowPlayer();
             
-            // 清理远离玩家的地图元素
-            cleanupDistantMapElements();
+            // 清理远离玩家的地图元素（降低频率以节省性能）
+            if (game.frameCount % Math.max(1, Math.floor(30 / performanceMultiplier)) === 0) {
+                cleanupDistantMapElements();
+            }
             
             // 更新怪物生成点
             updateSpawnPoints();
@@ -1122,22 +1246,30 @@
             // 强制怪物密度控制 - 确保九个屏幕范围内必须存在怪物
             enforceMonsterDensity();
             
-            // 动态敌人生成 - 基于玩家移动速度调整(作为补充生成)
+            // 动态敌人生成 - 基于玩家移动速度和性能模式调整
             game.spawnTimer += game.deltaTime;
             const playerSpeed = Math.sqrt(game.player.dx * game.player.dx + game.player.dy * game.player.dy);
             const speedMultiplier = Math.max(0.5, Math.min(2.0, playerSpeed / 5));
-            const dynamicSpawnRate = config.enemies.spawnRate * speedMultiplier;
+            const dynamicSpawnRate = config.enemies.spawnRate * speedMultiplier * performanceMultiplier;
             
-            if (game.spawnTimer >= 0.5) { // 更频繁的检查
+            const spawnInterval = game.performanceMode === 'high' ? 0.3 : 
+                                 game.performanceMode === 'medium' ? 0.5 : 0.8;
+            
+            if (game.spawnTimer >= spawnInterval) {
                 game.spawnTimer = 0;
-                // 只有在怪物总数不足时才进行补充生成
-                if (Math.random() < dynamicSpawnRate && game.enemies.length < config.enemies.maxCount * 0.8) {
+                const maxEnemies = Math.floor(config.enemies.maxCount * performanceMultiplier);
+                if (Math.random() < dynamicSpawnRate && game.enemies.length < maxEnemies * 0.8) {
                     spawnEnemy();
                 }
             }
             
-            // 生成带刺球球
-            if (Math.random() < 0.01 && game.spikeBalls.length < 10) {
+            // 生成带刺球球 - 根据性能模式调整
+            const spikeBallChance = game.performanceMode === 'high' ? 0.015 : 
+                                   game.performanceMode === 'medium' ? 0.01 : 0.005;
+            const maxSpikeBalls = game.performanceMode === 'high' ? 15 : 
+                                 game.performanceMode === 'medium' ? 10 : 5;
+            
+            if (Math.random() < spikeBallChance && game.spikeBalls.length < maxSpikeBalls) {
                 generateSpikeBalls();
             }
             
@@ -1225,15 +1357,37 @@
             }
         }
         
-        // 通用碰撞检测函数
+        // 优化的碰撞检测系统
+        const collisionSystem = {
+            // 粗略距离检查（快速筛选）
+            roughDistanceCheck: function(player, object, maxDistance = 200) {
+                const dx = Math.abs(player.x - (object.x + object.width / 2));
+                const dy = Math.abs(player.y - (object.y + object.height / 2));
+                return dx < maxDistance && dy < maxDistance;
+            },
+            
+            // 精确碰撞检测
+            preciseCollision: function(player, object) {
+                return (
+                    player.x + player.radius > object.x &&
+                    player.x - player.radius < object.x + object.width &&
+                    player.y + player.radius > object.y &&
+                    player.y - player.radius < object.y + object.height &&
+                    player.dy > 0
+                );
+            },
+            
+            // 获取附近的平台（空间索引优化）
+            getNearbyPlatforms: function(player, platforms, maxDistance = 300) {
+                return platforms.filter(platform => 
+                    this.roughDistanceCheck(player, platform, maxDistance)
+                );
+            }
+        };
+        
+        // 通用碰撞检测函数（保持向后兼容）
         function checkCollision(player, object) {
-            return (
-                player.x + player.radius > object.x &&
-                player.x - player.radius < object.x + object.width &&
-                player.y + player.radius > object.y &&
-                player.y - player.radius < object.y + object.height &&
-                player.dy > 0
-            );
+            return collisionSystem.preciseCollision(player, object);
         }
         
         // 处理平台碰撞
@@ -1335,22 +1489,32 @@
             game.player.x += game.player.dx;
             game.player.y += game.player.dy;
             
-            // 碰撞检测 - 使用通用函数简化代码
+            // 优化的碰撞检测 - 使用分层检测系统
             
             // 检测所有平台类型的碰撞（除了砖块）
             const allPlatforms = [...game.platforms, ...game.groundBlocks, ...game.mainlandBlocks, ...game.stoneBlocks];
-            for (const platform of allPlatforms) {
-                if (checkCollision(game.player, platform)) {
+            
+            // 第一层：获取附近的平台（空间索引优化）
+            const nearbyPlatforms = collisionSystem.getNearbyPlatforms(game.player, allPlatforms, 400);
+            
+            // 第二层：对附近平台进行精确碰撞检测
+            for (const platform of nearbyPlatforms) {
+                if (collisionSystem.preciseCollision(game.player, platform)) {
                     onPlatform = handlePlatformCollision(game.player, platform);
                     break; // 找到碰撞后立即退出
                 }
             }
             
-            // 砖块特殊碰撞检测
+            // 砖块特殊碰撞检测（优化版）
             for (let i = game.brickBlocks.length - 1; i >= 0; i--) {
                 const brickBlock = game.brickBlocks[i];
                 
-                // 检测玩家与砖块的碰撞
+                // 先进行粗略距离检查
+                if (!collisionSystem.roughDistanceCheck(game.player, brickBlock, 150)) {
+                    continue;
+                }
+                
+                // 精确碰撞检测
                 if (
                     game.player.x + game.player.radius > brickBlock.x &&
                     game.player.x - game.player.radius < brickBlock.x + brickBlock.width &&
@@ -1423,8 +1587,13 @@
                 }
             }
             
-            // 云朵碰撞检测
+            // 云朵碰撞检测（优化版）
             for (const cloud of game.clouds) {
+                // 先进行粗略距离检查
+                if (!collisionSystem.roughDistanceCheck(game.player, cloud, 200)) {
+                    continue;
+                }
+                
                 if (
                     game.player.x + game.player.radius > cloud.x &&
                     game.player.x - game.player.radius < cloud.x + cloud.width &&
@@ -1453,8 +1622,13 @@
                 }
             }
             
-            // 梯子交互
+            // 梯子交互（优化版）
             for (const ladder of game.ladders) {
+                // 先进行粗略距离检查
+                if (!collisionSystem.roughDistanceCheck(game.player, ladder, 100)) {
+                    continue;
+                }
+                
                 if (
                     game.player.x + game.player.radius > ladder.x &&
                     game.player.x - game.player.radius < ladder.x + ladder.width &&
@@ -1505,18 +1679,26 @@
                 // 计算射击角度 (从玩家指向目标)
                 const dx = targetX - game.player.x;
                 const dy = targetY - game.player.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                // 距离太远不生成子弹，优化性能
+                if (distance > 800) return;
+                
                 const angle = Math.atan2(dy, dx);
                 
-                game.projectiles.push({
-                    x: game.player.x,
-                    y: game.player.y,
-                    dx: Math.cos(angle) * 10,
-                    dy: Math.sin(angle) * 10,
-                    radius: 8,
-                    damage: game.player.attackPower,
-                    owner: 'player',
-                    lifetime: 120
-                });
+                // 使用对象池创建投射物
+                const projectile = ObjectPool.getProjectile();
+                projectile.x = game.player.x;
+                projectile.y = game.player.y;
+                projectile.dx = Math.cos(angle) * 10;
+                projectile.dy = Math.sin(angle) * 10;
+                projectile.radius = 8;
+                projectile.damage = game.player.attackPower;
+                projectile.owner = 'player';
+                projectile.lifetime = Math.min(120, Math.floor(distance / 8) + 30);
+                projectile.active = true;
+                
+                game.projectiles.push(projectile);
                 
                 game.player.lastAttackTime = game.player.attackCooldown;
             }
@@ -1648,27 +1830,29 @@
         
         // 创建伤害数值显示
         function createDamageNumber(x, y, damage, isCritical = false) {
-            game.damageNumbers.push({
-                x: x + randomBetween(-20, 20),
-                y: y - 10,
-                damage: damage,
-                isCritical: isCritical,
-                lifetime: 60, // 1秒显示时间
-                dy: -2, // 向上飘动
-                alpha: 1.0
-            });
+            const damageNumber = ObjectPool.getDamageNumber();
+            damageNumber.x = x + randomBetween(-20, 20);
+            damageNumber.y = y - 10;
+            damageNumber.damage = damage;
+            damageNumber.isCritical = isCritical;
+            damageNumber.lifetime = 60; // 1秒显示时间
+            damageNumber.dy = -2; // 向上飘动
+            damageNumber.alpha = 1.0;
+            damageNumber.active = true;
+            game.damageNumbers.push(damageNumber);
         }
         
         // 创建经验数值显示
         function createExperienceNumber(x, y, exp) {
-            game.experienceNumbers.push({
-                x: x + randomBetween(-15, 15),
-                y: y - 5,
-                exp: exp,
-                lifetime: 45,
-                dy: -1.5,
-                alpha: 1.0
-            });
+            const expNumber = ObjectPool.getExperienceNumber();
+            expNumber.x = x + randomBetween(-15, 15);
+            expNumber.y = y - 5;
+            expNumber.exp = exp;
+            expNumber.lifetime = 45;
+            expNumber.dy = -1.5;
+            expNumber.alpha = 1.0;
+            expNumber.active = true;
+            game.experienceNumbers.push(expNumber);
         }
         
         // 更新伤害数值显示
@@ -1686,6 +1870,7 @@
                 
                 // 移除过期的数值
                 if (damageNum.lifetime <= 0) {
+                    ObjectPool.recycleDamageNumber(damageNum);
                     game.damageNumbers.splice(i, 1);
                 }
             }
@@ -1706,6 +1891,7 @@
                 
                 // 移除过期的数值
                 if (expNum.lifetime <= 0) {
+                    ObjectPool.recycleExperienceNumber(expNum);
                     game.experienceNumbers.splice(i, 1);
                 }
             }
@@ -1945,12 +2131,12 @@
                                 game.particles.push({
                                     x: game.player.x,
                                     y: game.player.y,
-                                    vx: Math.cos(angle) * 3,
-                                    vy: Math.sin(angle) * 3,
-                                    life: 30,
-                                    maxLife: 30,
-                                    color: config.bubblePowerup.color,
-                                    size: 3
+                                    dx: Math.cos(angle) * 3,
+                                    dy: Math.sin(angle) * 3,
+                                    lifetime: 30,
+                                    color: config.bubblePowerup.color || '#00BFFF',
+                                    radius: 3,
+                                    alpha: 1
                                 });
                             }
                         }
@@ -2112,8 +2298,40 @@
         
         // 更新敌人状态
         function updateEnemies() {
+            // 性能优化：每3帧更新一次敌人AI
+            if (game.frameCount % 3 !== 0) {
+                // 只更新基本物理和攻击冷却
+                for (let i = game.enemies.length - 1; i >= 0; i--) {
+                    const enemy = game.enemies[i];
+                    
+                    // 更新位置
+                    enemy.x += enemy.dx;
+                    enemy.y += enemy.dy;
+                    
+                    // 更新冷却时间
+                    if (enemy.attackCooldown > 0) enemy.attackCooldown--;
+                    if (enemy.scatterCooldown > 0) enemy.scatterCooldown--;
+                    if (enemy.controlCooldown > 0) enemy.controlCooldown--;
+                }
+                return;
+            }
+            
             for (let i = game.enemies.length - 1; i >= 0; i--) {
                 const enemy = game.enemies[i];
+                
+                // 计算与玩家的距离
+                const dx = game.player.x - enemy.x;
+                const dy = game.player.y - enemy.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                // 性能优化：距离过远的敌人降低AI更新频率
+                const aiUpdateDistance = 1500;
+                if (distance > aiUpdateDistance) {
+                    // 远距离敌人只做基本移动
+                    enemy.x += enemy.dx * 0.5; // 减速移动
+                    enemy.y += enemy.dy * 0.5;
+                    continue;
+                }
                 
                 // 处理眩晕状态
                 if (enemy.stunned > 0) {
@@ -2123,11 +2341,6 @@
                     enemy.dy = 0;
                     continue;
                 }
-                
-                // 计算与玩家的距离
-                const dx = game.player.x - enemy.x;
-                const dy = game.player.y - enemy.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
                 
                 // AI行为
                 if (distance < enemy.detectionRange) {
@@ -2168,18 +2381,20 @@
                             game.player.dy += Math.sin(angle) * knockback;
                         }
                     } else if (enemy.type === 'blue' && distance < 400 && enemy.attackCooldown <= 0) {
-                        // 蓝色敌人远程攻击
-                        const projectileAngle = Math.atan2(dy, dx);
-                        game.projectiles.push({
-                            x: enemy.x,
-                            y: enemy.y,
-                            dx: Math.cos(projectileAngle) * 8,
-                            dy: Math.sin(projectileAngle) * 8,
-                            radius: 6,
-                            damage: 8,
-                            owner: 'enemy',
-                            lifetime: 90
-                        });
+                        // 蓝色敌人远程攻击 - 距离太远不攻击
+                        if (distance <= 350) {
+                            const projectileAngle = Math.atan2(dy, dx);
+                            game.projectiles.push({
+                                x: enemy.x,
+                                y: enemy.y,
+                                dx: Math.cos(projectileAngle) * 8,
+                                dy: Math.sin(projectileAngle) * 8,
+                                radius: 6,
+                                damage: 8,
+                                owner: 'enemy',
+                                lifetime: Math.min(90, Math.floor(distance / 8) + 20) // 根据距离调整生命周期
+                            });
+                        }
                         enemy.attackCooldown = config.enemies.attackCooldown;
                     } else if (enemy.type === 'white' && distance < 100) {
                         // 白色敌人自爆
@@ -2348,9 +2563,9 @@
                             }
                         }
                         
-                        // 大型子弹攻击
+                        // 大型子弹攻击 - 优化距离检测
                         enemy.bigBulletCooldown -= game.deltaTime;
-                        if (enemy.bigBulletCooldown <= 0 && distance < 600) {
+                        if (enemy.bigBulletCooldown <= 0 && distance < 500) { // 减少攻击距离
                             const bulletAngle = Math.atan2(dy, dx);
                             game.projectiles.push({
                                 x: enemy.x,
@@ -2360,7 +2575,7 @@
                                 radius: 20,  // 大型子弹
                                 damage: 30,  // 高伤害
                                 owner: 'enemy',
-                                lifetime: 180,
+                                lifetime: Math.min(180, Math.floor(distance / 5) + 40), // 根据距离调整生命周期
                                 color: '#D50000'
                             });
                             enemy.bigBulletCooldown = enemy.bigBulletInterval;
@@ -2722,18 +2937,41 @@
                 proj.x += proj.dx;
                 proj.y += proj.dy;
                 
-                // 生命周期
-                proj.lifetime--;
-                if (proj.lifetime <= 0) {
+                // 距离检测 - 清理远离玩家的子弹，优化性能
+                const distanceToPlayer = Math.sqrt(
+                    Math.pow(proj.x - game.player.x, 2) + 
+                    Math.pow(proj.y - game.player.y, 2)
+                );
+                if (distanceToPlayer > 1000) {
+                    ObjectPool.recycleProjectile(proj);
                     game.projectiles.splice(i, 1);
                     continue;
                 }
                 
-                // 碰撞检测
+                // 生命周期
+                proj.lifetime--;
+                if (proj.lifetime <= 0) {
+                    ObjectPool.recycleProjectile(proj);
+                    game.projectiles.splice(i, 1);
+                    continue;
+                }
+                
+                // 优化的碰撞检测
                 if (proj.owner === 'player') {
-                    // 玩家投射物检测敌人碰撞
+                    // 玩家投射物检测敌人碰撞（优化版）
                     for (let j = game.enemies.length - 1; j >= 0; j--) {
                         const enemy = game.enemies[j];
+                        
+                        // 第一层：粗略距离检查（快速筛选）
+                        const roughDx = Math.abs(proj.x - enemy.x);
+                        const roughDy = Math.abs(proj.y - enemy.y);
+                        const maxCollisionDistance = proj.radius + enemy.radius + 50; // 添加缓冲区
+                        
+                        if (roughDx > maxCollisionDistance || roughDy > maxCollisionDistance) {
+                            continue; // 跳过距离过远的敌人
+                        }
+                        
+                        // 第二层：精确距离计算
                         const dx = proj.x - enemy.x;
                         const dy = proj.y - enemy.y;
                         const distance = Math.sqrt(dx * dx + dy * dy);
@@ -2818,6 +3056,7 @@
                                     game.enemies.splice(j, 1);
                                 }
                                 
+                                ObjectPool.recycleProjectile(proj);
                                 game.projectiles.splice(i, 1);
                                 break;
                             }
@@ -2898,6 +3137,7 @@
                                 game.enemies.splice(j, 1);
                             }
                             
+                            ObjectPool.recycleProjectile(proj);
                             game.projectiles.splice(i, 1);
                             break;
                         }
@@ -2941,26 +3181,40 @@
                         }
                     }
                 } else {
-                    // 敌人投射物检测玩家碰撞
-                    const dx = proj.x - game.player.x;
-                    const dy = proj.y - game.player.y;
-                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    // 敌人投射物检测玩家碰撞（优化版）
+                    // 第一层：粗略距离检查
+                    const roughDx = Math.abs(proj.x - game.player.x);
+                    const roughDy = Math.abs(proj.y - game.player.y);
+                    const maxPlayerCollisionDistance = proj.radius + game.player.radius + 20;
                     
-                    if (distance < proj.radius + game.player.radius) {
-                        // 命中玩家
-                        game.player.health -= proj.damage;
-                        game.projectiles.splice(i, 1);
+                    if (roughDx <= maxPlayerCollisionDistance && roughDy <= maxPlayerCollisionDistance) {
+                        // 第二层：精确距离计算
+                        const dx = proj.x - game.player.x;
+                        const dy = proj.y - game.player.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
                         
-                        // 击退效果
-                        const angle = Math.atan2(dy, dx);
-                        const knockback = 8;
-                        game.player.dx += Math.cos(angle) * knockback;
-                        game.player.dy += Math.sin(angle) * knockback;
+                        if (distance < proj.radius + game.player.radius) {
+                            // 命中玩家
+                            game.player.health -= proj.damage;
+                            ObjectPool.recycleProjectile(proj);
+                            game.projectiles.splice(i, 1);
+                            
+                            // 击退效果
+                            const angle = Math.atan2(dy, dx);
+                            const knockback = 8;
+                            game.player.dx += Math.cos(angle) * knockback;
+                            game.player.dy += Math.sin(angle) * knockback;
+                        }
                     }
                 }
                 
-                // 检测投射物与石块碰撞
+                // 检测投射物与石块碰撞（优化版）
                 for (const stoneBlock of game.stoneBlocks) {
+                    // 粗略距离检查
+                    if (!collisionSystem.roughDistanceCheck(proj, stoneBlock, 100)) {
+                        continue;
+                    }
+                    
                     if (
                         proj.x + proj.radius > stoneBlock.x &&
                         proj.x - proj.radius < stoneBlock.x + stoneBlock.width &&
@@ -2968,14 +3222,21 @@
                         proj.y - proj.radius < stoneBlock.y + stoneBlock.height
                     ) {
                         // 投射物撞到石块，移除投射物
+                        ObjectPool.recycleProjectile(proj);
                         game.projectiles.splice(i, 1);
                         break;
                     }
                 }
                 
-                // 检测投射物与砖块碰撞
+                // 检测投射物与砖块碰撞（优化版）
                 for (let j = game.brickBlocks.length - 1; j >= 0; j--) {
                     const brickBlock = game.brickBlocks[j];
+                    
+                    // 粗略距离检查
+                    if (!collisionSystem.roughDistanceCheck(proj, brickBlock, 100)) {
+                        continue;
+                    }
+                    
                     if (
                         proj.x + proj.radius > brickBlock.x &&
                         proj.x - proj.radius < brickBlock.x + brickBlock.width &&
@@ -3222,18 +3483,25 @@
                 }
                 
                 if (closestEnemy && ball.lastAttackTime <= 0) {
-                    const angle = Math.atan2(closestEnemy.y - ball.y, closestEnemy.x - ball.x);
+                    const dx = closestEnemy.x - ball.x;
+                    const dy = closestEnemy.y - ball.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
                     
-                    game.projectiles.push({
-                        x: ball.x,
-                        y: ball.y,
-                        dx: Math.cos(angle) * 8,
-                        dy: Math.sin(angle) * 8,
-                        radius: 6,
-                        damage: ball.damage,
-                        owner: 'friendly',
-                        lifetime: 90
-                    });
+                    // 距离太远不攻击，优化性能
+                    if (distance <= 300) {
+                        const angle = Math.atan2(dy, dx);
+                        
+                        game.projectiles.push({
+                            x: ball.x,
+                            y: ball.y,
+                            dx: Math.cos(angle) * 8,
+                            dy: Math.sin(angle) * 8,
+                            radius: 6,
+                            damage: ball.damage,
+                            owner: 'friendly',
+                            lifetime: Math.min(90, Math.floor(distance / 8) + 20) // 根据距离调整生命周期
+                        });
+                    }
                     
                     ball.lastAttackTime = 30;
                 }
@@ -3250,27 +3518,44 @@
             }
         }
         
+        // 粒子对象池系统
+
+        
         // 更新粒子效果
         function updateParticles() {
-            // 进一步限制最大粒子数量，防止性能问题
-            const maxParticles = 150; // 减少最大粒子数
+            // 优化：减少最大粒子数量到100
+            const maxParticles = 100;
             if (game.particles.length > maxParticles) {
-                // 移除最老的粒子
-                game.particles.splice(0, game.particles.length - maxParticles);
+                // 回收多余的粒子到对象池
+                const excessParticles = game.particles.splice(0, game.particles.length - maxParticles);
+                excessParticles.forEach(p => ObjectPool.recycleParticle(p));
             }
             
-            // 每隔几帧才更新粒子，减少计算负担
-            if (game.frameCount % 2 !== 0) return;
+            // 优化：每3帧更新一次，进一步减少计算负担
+            if (game.frameCount % 3 !== 0) return;
             
             for (let i = game.particles.length - 1; i >= 0; i--) {
                 const p = game.particles[i];
+                
+                // 距离检测 - 清理远离玩家的粒子，优化性能
+                const distanceToPlayer = Math.sqrt(
+                    Math.pow(p.x - game.player.x, 2) + 
+                    Math.pow(p.y - game.player.y, 2)
+                );
+                if (distanceToPlayer > 600) { // 减少距离阈值
+                    ObjectPool.recycleParticle(p);
+                    game.particles.splice(i, 1);
+                    continue;
+                }
                 
                 p.x += p.dx;
                 p.y += p.dy;
                 p.dy += 0.1;
                 p.lifetime--;
+                p.alpha = Math.max(0, p.lifetime / 60); // 添加透明度渐变
                 
                 if (p.lifetime <= 0) {
+                    ObjectPool.recycleParticle(p);
                     game.particles.splice(i, 1);
                 }
             }
@@ -3382,26 +3667,30 @@
             
             if (!inView) return; // 屏幕外不生成粒子
             
-            // 根据半径调整粒子数量，减少总体粒子生成
-            const particleCount = Math.min(8, Math.max(3, Math.floor(radius / 3)));
+            // 进一步减少粒子数量以提升性能
+            const particleCount = Math.min(6, Math.max(2, Math.floor(radius / 4)));
             
             for (let i = 0; i < particleCount; i++) {
                 const angle = Math.random() * Math.PI * 2;
                 const speed = Math.random() * 3 + 1;
                 
-                game.particles.push({
-                    x: x,
-                    y: y,
-                    dx: Math.cos(angle) * speed,
-                    dy: Math.sin(angle) * speed,
-                    radius: Math.random() * 2 + 1,
-                    color: color,
-                    lifetime: 15 + Math.random() * 15 // 减少生命周期
-                });
+                // 使用对象池获取粒子
+                const particle = ObjectPool.getParticle();
+                particle.x = x;
+                particle.y = y;
+                particle.dx = Math.cos(angle) * speed;
+                particle.dy = Math.sin(angle) * speed;
+                particle.radius = Math.random() * 2 + 1;
+                particle.color = color;
+                particle.lifetime = 12 + Math.random() * 12; // 进一步减少生命周期
+                particle.alpha = 1;
+                
+                game.particles.push(particle);
             }
         }
         
         // 渲染游戏
+        // 优化的渲染函数 - 批量绘制和减少状态切换
         function render() {
             const ctx = game.ctx;
             
@@ -3415,62 +3704,155 @@
             // 应用相机变换
             ctx.translate(-game.camera.x, -game.camera.y);
             
-            // 绘制平台
+            // 视野裁剪范围 - 扩大裁剪范围以减少边缘闪烁
+            const viewPadding = game.performanceMode === 'high' ? 200 : 100;
+            const viewLeft = game.camera.x - viewPadding;
+            const viewRight = game.camera.x + game.gameWidth + viewPadding;
+            const viewTop = game.camera.y - viewPadding;
+            const viewBottom = game.camera.y + game.gameHeight + viewPadding;
+            
+            // 批量绘制平台 - 按类型分组减少状态切换
+            const visiblePlatforms = {
+                ground: [],
+                normal: []
+            };
+            
             for (const platform of game.platforms) {
-                ctx.fillStyle = platform.isGroundBlock ? '#795548' : '#5D4037';
-                ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+                if (platform.x + platform.width >= viewLeft && 
+                    platform.x <= viewRight &&
+                    platform.y + platform.height >= viewTop && 
+                    platform.y <= viewBottom) {
+                    if (platform.isGroundBlock) {
+                        visiblePlatforms.ground.push(platform);
+                    } else {
+                        visiblePlatforms.normal.push(platform);
+                    }
+                }
             }
             
-            // 绘制土地方块
-            ctx.fillStyle = config.colors.groundBlock;
+            // 批量绘制地面平台
+            if (visiblePlatforms.ground.length > 0) {
+                ctx.fillStyle = '#795548';
+                for (const platform of visiblePlatforms.ground) {
+                    ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+                }
+            }
+            
+            // 批量绘制普通平台
+            if (visiblePlatforms.normal.length > 0) {
+                ctx.fillStyle = '#5D4037';
+                for (const platform of visiblePlatforms.normal) {
+                    ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+                }
+            }
+            
+            // 批量收集可见方块
+            const visibleBlocks = {
+                ground: [],
+                mainland: [],
+                stone: []
+            };
+            
+            // 收集地面方块
             for (const block of game.groundBlocks) {
-                ctx.fillRect(block.x, block.y, block.width, block.height);
+                if (block.x + block.width >= viewLeft && 
+                    block.x <= viewRight &&
+                    block.y + block.height >= viewTop && 
+                    block.y <= viewBottom) {
+                    visibleBlocks.ground.push(block);
+                }
             }
             
-            // 绘制大陆地区块
-            ctx.fillStyle = '#4A2C2A'; // 深棕色，比普通土块更深
+            // 收集大陆地区块
             for (const block of game.mainlandBlocks) {
-                ctx.fillRect(block.x, block.y, block.width, block.height);
-                // 添加边框效果
+                if (block.x + block.width >= viewLeft && 
+                    block.x <= viewRight &&
+                    block.y + block.height >= viewTop && 
+                    block.y <= viewBottom) {
+                    visibleBlocks.mainland.push(block);
+                }
+            }
+            
+            // 收集石块
+            for (const block of game.stoneBlocks) {
+                if (block.x + block.width >= viewLeft && 
+                    block.x <= viewRight &&
+                    block.y + block.height >= viewTop && 
+                    block.y <= viewBottom) {
+                    visibleBlocks.stone.push(block);
+                }
+            }
+            
+            // 批量绘制地面方块
+            if (visibleBlocks.ground.length > 0) {
+                ctx.fillStyle = config.colors.groundBlock;
+                for (const block of visibleBlocks.ground) {
+                    ctx.fillRect(block.x, block.y, block.width, block.height);
+                }
+            }
+            
+            // 批量绘制大陆地区块
+            if (visibleBlocks.mainland.length > 0) {
+                ctx.fillStyle = '#4A2C2A';
+                for (const block of visibleBlocks.mainland) {
+                    ctx.fillRect(block.x, block.y, block.width, block.height);
+                }
+                // 批量绘制边框
                 ctx.strokeStyle = '#3E2723';
                 ctx.lineWidth = 2;
-                ctx.strokeRect(block.x, block.y, block.width, block.height);
+                for (const block of visibleBlocks.mainland) {
+                    ctx.strokeRect(block.x, block.y, block.width, block.height);
+                }
             }
             
-            // 绘制石块
-            ctx.fillStyle = config.colors.stoneBlock;
-            for (const block of game.stoneBlocks) {
-                ctx.fillRect(block.x, block.y, block.width, block.height);
-                // 添加石块纹理效果
+            // 批量绘制石块
+            if (visibleBlocks.stone.length > 0) {
+                // 填充
+                ctx.fillStyle = config.colors.stoneBlock;
+                for (const block of visibleBlocks.stone) {
+                    ctx.fillRect(block.x, block.y, block.width, block.height);
+                }
+                // 外边框
                 ctx.strokeStyle = '#555555';
                 ctx.lineWidth = 1;
-                ctx.strokeRect(block.x, block.y, block.width, block.height);
-                // 添加内部阴影效果
-                ctx.strokeStyle = '#808080';
-                ctx.strokeRect(block.x + 2, block.y + 2, block.width - 4, block.height - 4);
+                for (const block of visibleBlocks.stone) {
+                    ctx.strokeRect(block.x, block.y, block.width, block.height);
+                }
+                // 内阴影（仅在高性能模式下绘制）
+                if (game.performanceMode === 'high') {
+                    ctx.strokeStyle = '#808080';
+                    for (const block of visibleBlocks.stone) {
+                        ctx.strokeRect(block.x + 2, block.y + 2, block.width - 4, block.height - 4);
+                    }
+                }
             }
             
-            // 绘制砖块
+            // 绘制砖块 - 视野裁剪优化
             ctx.fillStyle = config.colors.brickBlock;
             for (const block of game.brickBlocks) {
-                ctx.fillRect(block.x, block.y, block.width, block.height);
-                // 添加砖块纹理效果
-                ctx.strokeStyle = '#8B4513';
-                ctx.lineWidth = 1;
-                ctx.strokeRect(block.x, block.y, block.width, block.height);
-                // 添加砖块分割线
-                ctx.strokeStyle = '#A0522D';
-                ctx.lineWidth = 0.5;
-                // 水平分割线
-                ctx.beginPath();
-                ctx.moveTo(block.x, block.y + block.height/2);
-                ctx.lineTo(block.x + block.width, block.y + block.height/2);
-                ctx.stroke();
-                // 垂直分割线
-                ctx.beginPath();
-                ctx.moveTo(block.x + block.width/2, block.y);
-                ctx.lineTo(block.x + block.width/2, block.y + block.height);
-                ctx.stroke();
+                if (block.x + block.width >= viewLeft && 
+                    block.x <= viewRight &&
+                    block.y + block.height >= viewTop && 
+                    block.y <= viewBottom) {
+                    ctx.fillRect(block.x, block.y, block.width, block.height);
+                    // 添加砖块纹理效果
+                    ctx.strokeStyle = '#8B4513';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(block.x, block.y, block.width, block.height);
+                    // 添加砖块分割线
+                    ctx.strokeStyle = '#A0522D';
+                    ctx.lineWidth = 0.5;
+                    // 水平分割线
+                    ctx.beginPath();
+                    ctx.moveTo(block.x, block.y + block.height/2);
+                    ctx.lineTo(block.x + block.width, block.y + block.height/2);
+                    ctx.stroke();
+                    // 垂直分割线
+                    ctx.beginPath();
+                    ctx.moveTo(block.x + block.width/2, block.y);
+                    ctx.lineTo(block.x + block.width/2, block.y + block.height);
+                    ctx.stroke();
+                }
             }
             
             // 绘制怪物生成点
@@ -3535,31 +3917,71 @@
                 }
             }
             
-            // 绘制敌人
+            // 批量绘制敌人 - 按类型分组减少状态切换
+            const visibleEnemies = {
+                rotating: [],
+                teleport: [],
+                snake: [],
+                yellow: [],
+                control: [],
+                elite: [],
+                normal: []
+            };
+            
+            // 收集可见敌人
             for (const enemy of game.enemies) {
-                if (enemy.type === 'rotating') {
-                    // 绘制旋转怪物的主体
-                    ctx.fillStyle = config.colors.rotatingEnemy;
+                if (enemy.x + enemy.radius >= viewLeft && 
+                    enemy.x - enemy.radius <= viewRight &&
+                    enemy.y + enemy.radius >= viewTop && 
+                    enemy.y - enemy.radius <= viewBottom) {
+                    if (enemy.type === 'rotating') {
+                        visibleEnemies.rotating.push(enemy);
+                    } else if (enemy.type === 'teleport') {
+                        visibleEnemies.teleport.push(enemy);
+                    } else if (enemy.type === 'snake') {
+                        visibleEnemies.snake.push(enemy);
+                    } else if (enemy.type === 'yellow') {
+                        visibleEnemies.yellow.push(enemy);
+                    } else if (enemy.type === 'control') {
+                        visibleEnemies.control.push(enemy);
+                    } else if (enemy.type === 'elite') {
+                        visibleEnemies.elite.push(enemy);
+                    } else {
+                        visibleEnemies.normal.push(enemy);
+                    }
+                }
+            }
+            
+            // 批量绘制旋转敌人
+            if (visibleEnemies.rotating.length > 0) {
+                ctx.fillStyle = config.colors.rotatingEnemy;
+                for (const enemy of visibleEnemies.rotating) {
+                    // 绘制主体
                     ctx.beginPath();
                     ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
                     ctx.fill();
                     
                     // 绘制伴随球体
-                    ctx.fillStyle = config.colors.rotatingEnemy;
                     ctx.beginPath();
                     ctx.arc(enemy.companion.x, enemy.companion.y, enemy.companion.radius, 0, Math.PI * 2);
                     ctx.fill();
-                    
-                    // 绘制连接线
-                    ctx.strokeStyle = config.colors.rotatingEnemy;
-                    ctx.lineWidth = 3;
-                    ctx.beginPath();
+                }
+                
+                // 批量绘制连接线
+                ctx.strokeStyle = config.colors.rotatingEnemy;
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                for (const enemy of visibleEnemies.rotating) {
                     ctx.moveTo(enemy.x, enemy.y);
                     ctx.lineTo(enemy.companion.x, enemy.companion.y);
-                    ctx.stroke();
-                } else if (enemy.type === 'teleport') {
-                    // 绘制传送怪物
-                    ctx.fillStyle = config.colors.teleportEnemy;
+                }
+                ctx.stroke();
+            }
+            
+            // 批量绘制传送敌人
+            if (visibleEnemies.teleport.length > 0) {
+                ctx.fillStyle = config.colors.teleportEnemy;
+                for (const enemy of visibleEnemies.teleport) {
                     ctx.beginPath();
                     ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
                     ctx.fill();
@@ -3589,8 +4011,12 @@
                             ctx.fill();
                         }
                     }
-                } else if (enemy.type === 'snake') {
-                    // 绘制贪吃蛇怪物
+                }
+            }
+            
+            // 批量绘制贪吃蛇敌人
+            if (visibleEnemies.snake.length > 0) {
+                for (const enemy of visibleEnemies.snake) {
                     // 先绘制蛇身节点
                     if (enemy.segments && enemy.segments.length > 0) {
                         ctx.fillStyle = '#4CAF50'; // 绿色蛇身
@@ -3598,15 +4024,10 @@
                             ctx.beginPath();
                             ctx.arc(segment.x, segment.y, segment.radius, 0, Math.PI * 2);
                             ctx.fill();
-                            
-                            // 蛇身边框
-                            ctx.strokeStyle = '#2E7D32';
-                            ctx.lineWidth = 2;
-                            ctx.stroke();
                         }
                         
-                        // 绘制蛇身连接线
-                        ctx.strokeStyle = '#388E3C';
+                        // 绘制连接线
+                        ctx.strokeStyle = '#2E7D32';
                         ctx.lineWidth = 4;
                         ctx.beginPath();
                         
@@ -3650,8 +4071,12 @@
                     ctx.beginPath();
                     ctx.arc(enemy.x + eyeOffset, enemy.y - eyeOffset, eyeSize, 0, Math.PI * 2);
                     ctx.fill();
-                } else if (enemy.type === 'yellow') {
-                    // 绘制黄色变大变小球球
+                }
+            }
+            
+            // 批量绘制黄色变大变小敌人
+            if (visibleEnemies.yellow.length > 0) {
+                for (const enemy of visibleEnemies.yellow) {
                     const sizeRatio = enemy.radius / enemy.baseRadius;
                     const pulseIntensity = Math.sin(performance.now() * 0.01) * 0.1 + 0.9;
                     
@@ -3684,9 +4109,12 @@
                         ctx.arc(enemy.x, enemy.y, enemy.radius - 3, 0, Math.PI * 2);
                         ctx.stroke();
                     }
-                } else if (enemy.type === 'control') {
-                    // 绘制控制球球
-                    
+                }
+            }
+            
+            // 批量绘制控制敌人
+            if (visibleEnemies.control.length > 0) {
+                for (const enemy of visibleEnemies.control) {
                     // 先绘制控制圈
                     const ringAlpha = 0.3 + Math.sin(enemy.controlRingPulse) * 0.2;
                     ctx.strokeStyle = `rgba(138, 43, 226, ${ringAlpha})`; // 紫色控制圈
@@ -3740,9 +4168,12 @@
                         );
                         ctx.fill();
                     }
-                } else if (enemy.type === 'elite') {
-                    // 绘制精英怪物
-                    
+                }
+            }
+            
+            // 批量绘制精英敌人
+            if (visibleEnemies.elite.length > 0) {
+                for (const enemy of visibleEnemies.elite) {
                     // 验证精英怪物属性
                     if (!isFinite(enemy.x) || !isFinite(enemy.y) || !isFinite(enemy.gravityFieldRadius) || enemy.gravityFieldRadius <= 0) {
                         continue; // 跳过无效的精英怪物
@@ -3848,50 +4279,64 @@
                     ctx.beginPath();
                     ctx.arc(enemy.x, enemy.y, enemy.radius + 10, 0, Math.PI * 2);
                     ctx.stroke();
-                } else {
-                    // 普通敌人渲染
+                }
+            }
+            
+            // 批量绘制普通敌人
+            if (visibleEnemies.normal.length > 0) {
+                for (const enemy of visibleEnemies.normal) {
                     ctx.fillStyle = config.colors[enemy.type + 'Enemy'];
                     ctx.beginPath();
                     ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
                     ctx.fill();
                 }
-                
-                // 血条
-                const healthPercent = enemy.health / enemy.maxHealth;
-                ctx.fillStyle = '#F44336';
-                ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 10, enemy.radius * 2, 3);
-                ctx.fillStyle = '#4CAF50';
-                ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 10, enemy.radius * 2 * healthPercent, 3);
             }
             
-            // 绘制带刺球球
-            for (const ball of game.spikeBalls) {
-                // 球体
-                ctx.fillStyle = config.colors.spikeBall;
-                ctx.beginPath();
-                ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
-                ctx.fill();
-                
-                // 刺
-                ctx.strokeStyle = '#000000';
-                ctx.lineWidth = 2;
-                for (let i = 0; i < 8; i++) {
-                    const angle = (i / 8) * Math.PI * 2;
-                    ctx.beginPath();
-                    ctx.moveTo(ball.x, ball.y);
-                    ctx.lineTo(
-                        ball.x + Math.cos(angle) * (ball.radius + 10),
-                        ball.y + Math.sin(angle) * (ball.radius + 10)
-                    );
-                    ctx.stroke();
+            // 批量绘制所有敌人的血条
+            for (const enemyType in visibleEnemies) {
+                for (const enemy of visibleEnemies[enemyType]) {
+                    const healthPercent = enemy.health / enemy.maxHealth;
+                    ctx.fillStyle = '#F44336';
+                    ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 10, enemy.radius * 2, 3);
+                    ctx.fillStyle = '#4CAF50';
+                    ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 10, enemy.radius * 2 * healthPercent, 3);
                 }
-                
-                // 血条
-                const healthPercent = ball.health / ball.maxHealth;
-                ctx.fillStyle = '#F44336';
-                ctx.fillRect(ball.x - ball.radius, ball.y - ball.radius - 10, ball.radius * 2, 3);
-                ctx.fillStyle = '#4CAF50';
-                ctx.fillRect(ball.x - ball.radius, ball.y - ball.radius - 10, ball.radius * 2 * healthPercent, 3);
+             }
+             
+             // 绘制带刺球球 - 视野裁剪优化
+            for (const ball of game.spikeBalls) {
+                // 视野裁剪 - 只绘制可见的带刺球球
+                if (ball.x + ball.radius >= viewLeft && 
+                    ball.x - ball.radius <= viewRight &&
+                    ball.y + ball.radius >= viewTop && 
+                    ball.y - ball.radius <= viewBottom) {
+                    // 球体
+                    ctx.fillStyle = config.colors.spikeBall;
+                    ctx.beginPath();
+                    ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // 刺
+                    ctx.strokeStyle = '#000000';
+                    ctx.lineWidth = 2;
+                    for (let i = 0; i < 8; i++) {
+                        const angle = (i / 8) * Math.PI * 2;
+                        ctx.beginPath();
+                        ctx.moveTo(ball.x, ball.y);
+                        ctx.lineTo(
+                            ball.x + Math.cos(angle) * (ball.radius + 10),
+                            ball.y + Math.sin(angle) * (ball.radius + 10)
+                        );
+                        ctx.stroke();
+                    }
+                    
+                    // 血条
+                    const healthPercent = ball.health / ball.maxHealth;
+                    ctx.fillStyle = '#F44336';
+                    ctx.fillRect(ball.x - ball.radius, ball.y - ball.radius - 10, ball.radius * 2, 3);
+                    ctx.fillStyle = '#4CAF50';
+                    ctx.fillRect(ball.x - ball.radius, ball.y - ball.radius - 10, ball.radius * 2 * healthPercent, 3);
+                }
             }
             
             // 绘制玩家
@@ -3925,40 +4370,59 @@
                 ctx.fill();
             }
             
-            // 绘制友方球球
+            // 绘制友方球球 - 视野裁剪优化
             ctx.fillStyle = config.colors.friendly;
             for (const ball of game.friendlyBalls) {
-                ctx.beginPath();
-                ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
-                ctx.fill();
-                
-                // 血条
-                const healthPercent = ball.health / 30;
-                ctx.fillStyle = '#F44336';
-                ctx.fillRect(ball.x - ball.radius, ball.y - ball.radius - 8, ball.radius * 2, 3);
-                ctx.fillStyle = '#4CAF50';
-                ctx.fillRect(ball.x - ball.radius, ball.y - ball.radius - 8, ball.radius * 2 * healthPercent, 3);
-            }
-            
-            // 绘制投射物
-            for (const proj of game.projectiles) {
-                // 根据owner设置不同颜色
-                if (proj.owner === 'enemy') {
-                    ctx.fillStyle = '#FF0000'; // 怪物子弹为红色
-                } else {
-                    ctx.fillStyle = config.colors.projectile; // 玩家子弹保持原色
+                // 视野裁剪 - 只绘制可见的友方球球
+                if (ball.x + ball.radius >= viewLeft && 
+                    ball.x - ball.radius <= viewRight &&
+                    ball.y + ball.radius >= viewTop && 
+                    ball.y - ball.radius <= viewBottom) {
+                    ctx.beginPath();
+                    ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    // 血条
+                    const healthPercent = ball.health / 30;
+                    ctx.fillStyle = '#F44336';
+                    ctx.fillRect(ball.x - ball.radius, ball.y - ball.radius - 8, ball.radius * 2, 3);
+                    ctx.fillStyle = '#4CAF50';
+                    ctx.fillRect(ball.x - ball.radius, ball.y - ball.radius - 8, ball.radius * 2 * healthPercent, 3);
+                    ctx.fillStyle = config.colors.friendly; // 重置颜色
                 }
-                ctx.beginPath();
-                ctx.arc(proj.x, proj.y, proj.radius, 0, Math.PI * 2);
-                ctx.fill();
             }
             
-            // 绘制泡泡道具
+            // 绘制投射物 - 视野裁剪优化
+            for (const proj of game.projectiles) {
+                // 视野裁剪 - 只绘制可见的投射物
+                if (proj.x + proj.radius >= viewLeft && 
+                    proj.x - proj.radius <= viewRight &&
+                    proj.y + proj.radius >= viewTop && 
+                    proj.y - proj.radius <= viewBottom) {
+                    // 根据owner设置不同颜色
+                    if (proj.owner === 'enemy') {
+                        ctx.fillStyle = '#FF0000'; // 怪物子弹为红色
+                    } else {
+                        ctx.fillStyle = config.colors.projectile; // 玩家子弹保持原色
+                    }
+                    ctx.beginPath();
+                    ctx.arc(proj.x, proj.y, proj.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            
+            // 绘制泡泡道具 - 视野裁剪优化
             for (const bubble of game.bubblePowerups) {
                 // 验证泡泡属性是否为有限数值
                 if (!isFinite(bubble.x) || !isFinite(bubble.y) || !isFinite(bubble.radius) || !isFinite(bubble.glowPhase)) {
                     continue; // 跳过无效的泡泡
                 }
+                
+                // 视野裁剪 - 只绘制可见的泡泡道具
+                if (bubble.x + bubble.radius >= viewLeft && 
+                    bubble.x - bubble.radius <= viewRight &&
+                    bubble.y + bubble.radius >= viewTop && 
+                    bubble.y - bubble.radius <= viewBottom) {
                 
                 // 计算发光效果
                 const glowIntensity = Math.sin(bubble.glowPhase) * 0.3 + 0.7;
@@ -4010,6 +4474,7 @@
                 ctx.fillRect(bubble.x - bubble.radius, bubble.y - bubble.radius - 8, bubble.radius * 2, 3);
                 ctx.fillStyle = config.bubblePowerup.glowColor;
                 ctx.fillRect(bubble.x - bubble.radius, bubble.y - bubble.radius - 8, bubble.radius * 2 * healthPercent, 3);
+                }
             }
             
             // 绘制玩家泡泡状态
@@ -4044,46 +4509,85 @@
                 ctx.fill();
             }
             
-            // 绘制粒子
+            // 绘制粒子 - 视野裁剪优化和透明度支持
             for (const p of game.particles) {
-                ctx.fillStyle = p.color;
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-                ctx.fill();
+                // 视野裁剪 - 只绘制可见的粒子
+                if (p.x + p.radius >= viewLeft && 
+                    p.x - p.radius <= viewRight &&
+                    p.y + p.radius >= viewTop && 
+                    p.y - p.radius <= viewBottom) {
+                    // 支持透明度渐变
+                    const alpha = p.alpha || 1;
+                    
+                    // 添加安全检查和默认颜色
+                    if (!p.color) {
+                        ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`; // 默认白色
+                    } else if (typeof p.color === 'string' && p.color.startsWith('#')) {
+                        // 将十六进制颜色转换为rgba
+                        const r = parseInt(p.color.slice(1, 3), 16);
+                        const g = parseInt(p.color.slice(3, 5), 16);
+                        const b = parseInt(p.color.slice(5, 7), 16);
+                        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+                    } else {
+                        ctx.fillStyle = p.color;
+                    }
+                    
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
             }
             
-            // 绘制AOE圈圈
+            // 绘制AOE圈圈 - 视野裁剪优化
             for (const ring of game.aoeRings) {
-                const alpha = ring.life / ring.maxLife;
-                ctx.strokeStyle = `rgba(255, 100, 100, ${alpha})`;
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.arc(ring.x, ring.y, ring.radius, 0, Math.PI * 2);
-                ctx.stroke();
+                // 视野裁剪 - 只绘制可见的AOE圈圈
+                if (ring.x + ring.radius >= viewLeft && 
+                    ring.x - ring.radius <= viewRight &&
+                    ring.y + ring.radius >= viewTop && 
+                    ring.y - ring.radius <= viewBottom) {
+                    const alpha = ring.life / ring.maxLife;
+                    ctx.strokeStyle = `rgba(255, 100, 100, ${alpha})`;
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.arc(ring.x, ring.y, ring.radius, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
             }
             
-            // 绘制伤害数值
+            // 绘制伤害数值 - 视野裁剪优化
             for (const damage of game.damageNumbers) {
-                ctx.fillStyle = `rgba(255, 255, 255, ${damage.alpha})`;
-                ctx.font = '16px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText(`-${damage.damage}`, damage.x, damage.y);
+                // 视野裁剪 - 只绘制可见的伤害数值
+                if (damage.x >= viewLeft && damage.x <= viewRight &&
+                    damage.y >= viewTop && damage.y <= viewBottom) {
+                    ctx.fillStyle = `rgba(255, 255, 255, ${damage.alpha})`;
+                    ctx.font = '16px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(`-${damage.damage}`, damage.x, damage.y);
+                }
             }
             
-            // 绘制经验值数值
+            // 绘制经验值数值 - 视野裁剪优化
             for (const exp of game.experienceNumbers) {
-                ctx.fillStyle = `rgba(0, 255, 0, ${exp.alpha})`;
-                ctx.font = '14px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText(`+${exp.exp} EXP`, exp.x, exp.y);
+                // 视野裁剪 - 只绘制可见的经验值数值
+                if (exp.x >= viewLeft && exp.x <= viewRight &&
+                    exp.y >= viewTop && exp.y <= viewBottom) {
+                    ctx.fillStyle = `rgba(0, 255, 0, ${exp.alpha})`;
+                    ctx.font = '14px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(`+${exp.exp} EXP`, exp.x, exp.y);
+                }
             }
             
-            // 绘制浮动文本
+            // 绘制浮动文本 - 视野裁剪优化
             for (const floatingText of game.floatingTexts) {
-                ctx.fillStyle = `rgba(${floatingText.color === '#00ff00' ? '0, 255, 0' : '255, 255, 255'}, ${floatingText.alpha})`;
-                ctx.font = '14px Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText(floatingText.text, floatingText.x, floatingText.y);
+                // 视野裁剪 - 只绘制可见的浮动文本
+                if (floatingText.x >= viewLeft && floatingText.x <= viewRight &&
+                    floatingText.y >= viewTop && floatingText.y <= viewBottom) {
+                    ctx.fillStyle = `rgba(${floatingText.color === '#00ff00' ? '0, 255, 0' : '255, 255, 255'}, ${floatingText.alpha})`;
+                    ctx.font = '14px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(floatingText.text, floatingText.x, floatingText.y);
+                }
             }
             
             // 恢复状态
@@ -4140,6 +4644,27 @@
             
             // 友方球球数量
             ctx.fillText(`友军: ${game.friendlyBalls.length}/5`, 20, 260);
+            
+            // 性能信息显示
+            ctx.fillStyle = '#00FF00';
+            ctx.font = '16px Arial';
+            ctx.fillText(`FPS: ${game.currentFPS}`, 20, 290);
+            
+            // 性能模式显示
+            const modeColor = {
+                'low': '#FF5722',
+                'medium': '#FFC107', 
+                'high': '#4CAF50'
+            }[game.performanceMode];
+            ctx.fillStyle = modeColor;
+            ctx.fillText(`性能模式: ${game.performanceMode.toUpperCase()}`, 20, 320);
+            
+            // 游戏对象统计
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = '14px Arial';
+            ctx.fillText(`敌人: ${game.enemies.length}`, 20, 350);
+            ctx.fillText(`投射物: ${game.projectiles.length}`, 20, 370);
+            ctx.fillText(`粒子: ${game.particles.length}`, 20, 390);
             
             // 控制提示
             ctx.font = '16px Arial';
@@ -4233,6 +4758,7 @@
         
         // 启动游戏
         window.onload = init;
+        
     </script>
 </body>
 </html>
