@@ -102,7 +102,7 @@
             },
             spawnPoints: {
                 count: 150,  // 增加怪物生成点数量
-                activationRange: 800,  // 大幅增加激活范围
+                activationRange: 1200,  // 进一步增加激活范围，确保远距离激活
                 cooldown: 15,  // 减少冷却时间
                 maxEnemiesPerPoint: 5,  // 增加每个生成点最大敌人数
                 persistentActivation: true,  // 持续激活模式
@@ -321,7 +321,7 @@
             }
             
             // 清理远离玩家的敌人以优化性能，但保持区域密度
-            const cleanupDistance = 3000;
+            const cleanupDistance = 5000; // 增加清理距离，确保刷怪点有足够时间激活
             const minEnemiesPerRegion = 3; // 每个区域最少保持的敌人数量
             const regionSize = 800; // 区域大小
             
