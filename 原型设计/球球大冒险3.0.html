@@ -3769,9 +3769,9 @@
                     bubble.x, bubble.y, 0,
                     bubble.x, bubble.y, glowRadius
                 );
-                gradient.addColorStop(0, config.bubblePowerup.glowColor + '80');
-                gradient.addColorStop(0.7, config.bubblePowerup.glowColor + '40');
-                gradient.addColorStop(1, config.bubblePowerup.glowColor + '00');
+                gradient.addColorStop(0, 'rgba(100, 200, 255, 0.5)');
+                gradient.addColorStop(0.7, 'rgba(100, 200, 255, 0.25)');
+                gradient.addColorStop(1, 'rgba(100, 200, 255, 0)');
                 
                 ctx.fillStyle = gradient;
                 ctx.beginPath();
