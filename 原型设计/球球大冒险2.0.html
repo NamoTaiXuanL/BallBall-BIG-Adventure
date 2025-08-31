@@ -130,6 +130,7 @@
             particles: [],
             damageNumbers: [], // 伤害数值显示
             experienceNumbers: [], // 经验数值显示
+            floatingTexts: [], // 浮动文本显示
             camera: { x: 0, y: 0, targetX: 0, targetY: 0 },
             score: 0,
             gameWidth: 0,
@@ -996,6 +997,9 @@
             // 更新经验值数值显示
             updateExperienceNumbers();
             
+            // 更新浮动文本
+            updateFloatingTexts();
+            
             // 更新蓄力跳跃
             updateChargeJump();
             
@@ -1466,6 +1470,26 @@
                 // 移除过期的数值
                 if (expNum.lifetime <= 0) {
                     game.experienceNumbers.splice(i, 1);
+                }
+            }
+        }
+        
+        // 更新浮动文本显示
+        function updateFloatingTexts() {
+            for (let i = game.floatingTexts.length - 1; i >= 0; i--) {
+                const floatingText = game.floatingTexts[i];
+                
+                // 更新位置
+                floatingText.y += floatingText.dy;
+                floatingText.dy *= 0.98; // 减速效果
+                
+                // 更新透明度
+                floatingText.lifetime--;
+                floatingText.alpha = floatingText.lifetime / 60;
+                
+                // 移除过期的文本
+                if (floatingText.lifetime <= 0) {
+                    game.floatingTexts.splice(i, 1);
                 }
             }
         }
@@ -3128,7 +3152,7 @@
                 ctx.fillStyle = `rgba(255, 255, 255, ${damage.alpha})`;
                 ctx.font = '16px Arial';
                 ctx.textAlign = 'center';
-                ctx.fillText(`-${damage.value}`, damage.x, damage.y);
+                ctx.fillText(`-${damage.damage}`, damage.x, damage.y);
             }
             
             // 绘制经验值数值
@@ -3136,7 +3160,15 @@
                 ctx.fillStyle = `rgba(0, 255, 0, ${exp.alpha})`;
                 ctx.font = '14px Arial';
                 ctx.textAlign = 'center';
-                ctx.fillText(`+${exp.value} EXP`, exp.x, exp.y);
+                ctx.fillText(`+${exp.exp} EXP`, exp.x, exp.y);
+            }
+            
+            // 绘制浮动文本
+            for (const floatingText of game.floatingTexts) {
+                ctx.fillStyle = `rgba(${floatingText.color === '#00ff00' ? '0, 255, 0' : '255, 255, 255'}, ${floatingText.alpha})`;
+                ctx.font = '14px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(floatingText.text, floatingText.x, floatingText.y);
             }
             
             // 恢复状态
