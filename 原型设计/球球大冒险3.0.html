@@ -124,6 +124,8 @@
                 flySpeed: 8,  // 飞行速度
                 duration: 300,  // 持续时间(帧)
                 spawnDistance: 1500,  // 生成距离
+                floatSpeed: 2,  // 漂浮速度
+                lifetime: 1800,  // 生存时间(帧)
                 color: 'rgba(100, 200, 255, 0.6)',  // 泡泡颜色
                 glowColor: 'rgba(100, 200, 255, 0.3)'  // 发光效果颜色
             }
@@ -3491,18 +3493,20 @@
                     ctx.setLineDash([]); // 重置虚线
                     
                     // 控制圈内部渐变效果
-                    const gradient = ctx.createRadialGradient(
-                        enemy.x, enemy.y, 0,
-                        enemy.x, enemy.y, enemy.controlRingRadius
-                    );
-                    gradient.addColorStop(0, 'rgba(138, 43, 226, 0)');
-                    gradient.addColorStop(0.7, 'rgba(138, 43, 226, 0.05)');
-                    gradient.addColorStop(1, 'rgba(138, 43, 226, 0.15)');
-                    
-                    ctx.fillStyle = gradient;
-                    ctx.beginPath();
-                    ctx.arc(enemy.x, enemy.y, enemy.controlRingRadius, 0, Math.PI * 2);
-                    ctx.fill();
+                    if (isFinite(enemy.controlRingRadius) && enemy.controlRingRadius > 0) {
+                        const gradient = ctx.createRadialGradient(
+                            enemy.x, enemy.y, 0,
+                            enemy.x, enemy.y, enemy.controlRingRadius
+                        );
+                        gradient.addColorStop(0, 'rgba(138, 43, 226, 0)');
+                        gradient.addColorStop(0.7, 'rgba(138, 43, 226, 0.05)');
+                        gradient.addColorStop(1, 'rgba(138, 43, 226, 0.15)');
+                        
+                        ctx.fillStyle = gradient;
+                        ctx.beginPath();
+                        ctx.arc(enemy.x, enemy.y, enemy.controlRingRadius, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
                     
                     // 绘制主体球球
                     ctx.fillStyle = '#9C27B0'; // 紫色主体
@@ -3533,6 +3537,11 @@
                     }
                 } else if (enemy.type === 'elite') {
                     // 绘制精英怪物
+                    
+                    // 验证精英怪物属性
+                    if (!isFinite(enemy.x) || !isFinite(enemy.y) || !isFinite(enemy.gravityFieldRadius) || enemy.gravityFieldRadius <= 0) {
+                        continue; // 跳过无效的精英怪物
+                    }
                     
                     // 引力场效果
                     const gravityAlpha = 0.1 + Math.sin(performance.now() * 0.005) * 0.05;
@@ -3578,17 +3587,20 @@
                     ctx.fill();
                     
                     // 核心光晕
-                    const coreGlow = ctx.createRadialGradient(
-                        enemy.x, enemy.y, 0,
-                        enemy.x, enemy.y, coreRadius * 1.5
-                    );
-                    coreGlow.addColorStop(0, 'rgba(255, 255, 0, 0.8)');
-                    coreGlow.addColorStop(1, 'rgba(255, 255, 0, 0)');
-                    
-                    ctx.fillStyle = coreGlow;
-                    ctx.beginPath();
-                    ctx.arc(enemy.x, enemy.y, coreRadius * 1.5, 0, Math.PI * 2);
-                    ctx.fill();
+                    const coreGlowRadius = coreRadius * 1.5;
+                    if (isFinite(coreGlowRadius) && coreGlowRadius > 0) {
+                        const coreGlow = ctx.createRadialGradient(
+                            enemy.x, enemy.y, 0,
+                            enemy.x, enemy.y, coreGlowRadius
+                        );
+                        coreGlow.addColorStop(0, 'rgba(255, 255, 0, 0.8)');
+                        coreGlow.addColorStop(1, 'rgba(255, 255, 0, 0)');
+                        
+                        ctx.fillStyle = coreGlow;
+                        ctx.beginPath();
+                        ctx.arc(enemy.x, enemy.y, coreGlowRadius, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
                     
                     // 绘制环绕球
                     if (enemy.orbs) {
@@ -3738,9 +3750,19 @@
             
             // 绘制泡泡道具
             for (const bubble of game.bubblePowerups) {
+                // 验证泡泡属性是否为有限数值
+                if (!isFinite(bubble.x) || !isFinite(bubble.y) || !isFinite(bubble.radius) || !isFinite(bubble.glowPhase)) {
+                    continue; // 跳过无效的泡泡
+                }
+                
                 // 计算发光效果
                 const glowIntensity = Math.sin(bubble.glowPhase) * 0.3 + 0.7;
                 const glowRadius = bubble.radius + glowIntensity * 5;
+                
+                // 验证计算结果是否为有限数值
+                if (!isFinite(glowRadius) || glowRadius <= 0) {
+                    continue; // 跳过无效的渲染
+                }
                 
                 // 外层发光
                 const gradient = ctx.createRadialGradient(
