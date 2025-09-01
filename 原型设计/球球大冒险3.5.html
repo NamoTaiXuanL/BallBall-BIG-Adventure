@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html>
 <head>
     <title>球球大冒险 3.4 - 性能优化版</title>
@@ -172,6 +172,7 @@
             mainlandBlocks: [],  // 大陆地区块
             stoneBlocks: [],  // 石块
             brickBlocks: [],  // 砖块
+            clouds: [],  // 云朵
             trampolines: [],  // 弹床
             ladders: [],  // 梯子
             enemies: [],
@@ -343,16 +344,16 @@
                 aoeAttackCooldown: 0,
                 // 新的泡泡效果状态
                 powerups: {
-                    invincible: {
+                    golden: {
                         active: false,
                         duration: 0
                     },
-                    rapidFire: {
+                    blue: {
                         active: false,
                         duration: 0,
                         multiplier: 2
                     },
-                    collisionBoost: {
+                    red: {
                         active: false,
                         duration: 0,
                         damageMultiplier: 3,
@@ -370,6 +371,7 @@
             generateTrampolines();
             generateLadders();
             generateSpawnPoints();
+            generateClouds();
             
             // 事件监听
             window.addEventListener('keydown', handleKeyDown);
@@ -618,6 +620,25 @@
                     enemiesSpawned: 0,
                     lastActivationTime: 0
                 });
+            }
+        }
+        
+        // 生成云朵
+        function generateClouds() {
+            game.clouds = [];
+            
+            for (const platform of game.platforms) {
+                if (platform.hasCloud) {
+                    const cloudWidth = randomBetween(80, 150);
+                    const cloudHeight = 30;
+                    
+                    game.clouds.push({
+                        x: platform.x + randomBetween(0, platform.width - cloudWidth),
+                        y: platform.y - cloudHeight,
+                        width: cloudWidth,
+                        height: cloudHeight
+                    });
+                }
             }
         }
         
@@ -2018,6 +2039,20 @@
             }
         }
         
+        // 创建浮动文本
+        function createFloatingText(x, y, text, color, lifetime, scale) {
+            game.floatingTexts.push({
+                x: x,
+                y: y,
+                text: text,
+                color: color || '#FFFFFF',
+                lifetime: lifetime || 60,
+                alpha: 1,
+                dy: -1,
+                scale: scale || 1.0
+            });
+        }
+        
         // 更新AOE圈圈效果
         function updateAoeRings() {
             for (let i = game.aoeRings.length - 1; i >= 0; i--) {
@@ -2350,8 +2385,17 @@
         
         // 更新玩家道具效果
         function updatePlayerPowerups() {
+            // 确保 powerups 对象存在
+            if (!game.player.powerups) {
+                game.player.powerups = {
+                    golden: { active: false, duration: 0 },
+                    blue: { active: false, duration: 0, multiplier: 2 },
+                    red: { active: false, duration: 0, damageMultiplier: 3, knockbackMultiplier: 2 }
+                };
+            }
+            
             // 更新金色泡泡无敌效果
-            if (game.player.powerups.golden.active) {
+            if (game.player.powerups.golden && game.player.powerups.golden.active) {
                 game.player.powerups.golden.duration -= game.deltaTime;
                 if (game.player.powerups.golden.duration <= 0) {
                     game.player.powerups.golden.active = false;
@@ -2370,7 +2414,7 @@
             }
             
             // 更新蓝色泡泡射速效果
-            if (game.player.powerups.blue.active) {
+            if (game.player.powerups.blue && game.player.powerups.blue.active) {
                 game.player.powerups.blue.duration -= game.deltaTime;
                 if (game.player.powerups.blue.duration <= 0) {
                     game.player.powerups.blue.active = false;
@@ -2389,7 +2433,7 @@
             }
             
             // 更新红色泡泡碰撞效果
-            if (game.player.powerups.red.active) {
+            if (game.player.powerups.red && game.player.powerups.red.active) {
                 game.player.powerups.red.duration -= game.deltaTime;
                 if (game.player.powerups.red.duration <= 0) {
                     game.player.powerups.red.active = false;
@@ -4936,9 +4980,29 @@
                 // 视野裁剪 - 只绘制可见的浮动文本
                 if (floatingText.x >= viewLeft && floatingText.x <= viewRight &&
                     floatingText.y >= viewTop && floatingText.y <= viewBottom) {
-                    ctx.fillStyle = `rgba(${floatingText.color === '#00ff00' ? '0, 255, 0' : '255, 255, 255'}, ${floatingText.alpha})`;
-                    ctx.font = '14px Arial';
+                    
+                    // 计算透明度
+                    const alpha = floatingText.alpha || (floatingText.lifetime / 60);
+                    
+                    // 设置颜色和透明度
+                    let colorRgb;
+                    if (floatingText.color === '#00ff00' || floatingText.color === '#FFD700') {
+                        if (floatingText.color === '#FFD700') {
+                            colorRgb = '255, 215, 0'; // 金色
+                        } else {
+                            colorRgb = '0, 255, 0'; // 绿色
+                        }
+                    } else {
+                        colorRgb = '255, 255, 255'; // 白色
+                    }
+                    
+                    ctx.fillStyle = `rgba(${colorRgb}, ${alpha})`;
+                    
+                    // 设置字体大小（支持缩放）
+                    const fontSize = floatingText.scale ? Math.floor(14 * floatingText.scale) : 14;
+                    ctx.font = `${fontSize}px Arial`;
                     ctx.textAlign = 'center';
+                    
                     ctx.fillText(floatingText.text, floatingText.x, floatingText.y);
                 }
             }
