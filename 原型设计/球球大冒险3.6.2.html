@@ -5309,8 +5309,8 @@
             // 绘制暴击显示 - 屏幕中央
             for (const criticalDisplay of game.criticalDisplays) {
                 // 计算屏幕中央位置
-                const centerX = canvas.width / 2;
-                const centerY = canvas.height / 2 - 50; // 稍微偏上
+                const centerX = game.canvas.width / 2;
+                const centerY = game.canvas.height / 2 - 50; // 稍微偏上
                 
                 // 设置暴击文字样式
                 const fontSize = Math.floor(48 * criticalDisplay.scale);
