@@ -1,0 +1,2453 @@
+// 球球大冒险 - 游戏核心逻辑模块
+// 包含游戏规则、状态管理、碰撞检测、敌人AI、物理引擎等核心算法
+
+// 导入输入处理模块中的动作控制函数
+// 在浏览器环境中直接使用window对象上的函数
+let inputHandler = {
+    updatePlayer: window.updatePlayer,
+    updateDash: window.updateDash,
+    updateChargeJump: window.updateChargeJump,
+    updateEnemies: window.updateEnemies
+};
+
+// 碰撞检测系统已在utils.js中定义，这里直接使用
+
+// 敌人生成系统
+function updateSpawnPoints() {
+    // 清理远离玩家的生成点（防止内存泄漏）
+    for (let i = game.spawnPoints.length - 1; i >= 0; i--) {
+        const spawnPoint = game.spawnPoints[i];
+        const distance = Math.sqrt(
+            Math.pow(spawnPoint.x - game.player.x, 2) + 
+            Math.pow(spawnPoint.y - game.player.y, 2)
+        );
+        
+        // 移除距离玩家超过6000像素的生成点
+        if (distance > 6000) {
+            game.spawnPoints.splice(i, 1);
+            continue;
+        }
+        
+        // 只处理玩家1200像素范围内的生成点
+        if (distance > 1200) continue;
+        
+        // 更新冷却时间
+        if (spawnPoint.cooldownTimer > 0) {
+            spawnPoint.cooldownTimer--;
+        }
+        
+        // 检查激活条件
+        const isInRange = distance < config.spawnPoints.activationRange;
+        const canSpawn = spawnPoint.cooldownTimer <= 0;
+        
+        if (isInRange && canSpawn) {
+            // 检查当前敌人数量
+            const currentEnemies = game.enemies.filter(enemy => {
+                const dx = enemy.x - spawnPoint.x;
+                const dy = enemy.y - spawnPoint.y;
+                return Math.sqrt(dx * dx + dy * dy) < 300;
+            }).length;
+            
+            const maxEnemies = spawnPoint.density === 'high' ? 6 : 3;
+            
+            if (currentEnemies < maxEnemies) {
+                // 计算生成概率
+                const playerSpeed = Math.sqrt(game.player.dx * game.player.dx + game.player.dy * game.player.dy);
+                const baseChance = 0.4;
+                const speedBonus = Math.min(0.3, playerSpeed * 0.05);
+                const spawnChance = baseChance + speedBonus;
+                
+                if (Math.random() < spawnChance) {
+                    spawnEnemyAtPoint(spawnPoint);
+                    spawnPoint.spawnCount++;
+                    
+                    // 冷却机制改进：附近敌人少于4个时立即重置
+                    if (currentEnemies < 4) {
+                        spawnPoint.cooldownTimer = 30; // 0.5秒冷却
+                    } else {
+                        spawnPoint.cooldownTimer = 120; // 2秒冷却
+                    }
+                }
+            }
+            
+            // 持续激活模式
+            if (config.spawnPoints.persistentActivation && spawnPoint.spawnCount >= 10) {
+                spawnPoint.cooldownTimer = 60; // 1秒后重新激活
+                spawnPoint.spawnCount = 0;
+            }
+        }
+    }
+}
+
+// 在生成点创建敌人
+function spawnEnemyAtPoint(spawnPoint) {
+    const x = spawnPoint.x + randomBetween(-50, 50);
+    const y = spawnPoint.y + randomBetween(-50, 50);
+    
+    // 检查是否生成精英怪物
+    const distanceToPlayer = Math.sqrt(
+        Math.pow(x - game.player.x, 2) + 
+        Math.pow(y - game.player.y, 2)
+    );
+    
+    let enemyType;
+    if (distanceToPlayer >= config.enemies.eliteMinDistance && 
+        distanceToPlayer <= config.enemies.eliteMaxDistance && 
+        Math.random() < config.enemies.eliteSpawnChance) {
+        enemyType = 'elite';
+    } else {
+        // 普通敌人类型
+        const normalTypes = ['red', 'blue', 'white', 'black', 'largered', 'rotating', 'teleport', 'snake', 'yellow', 'control'];
+        enemyType = normalTypes[Math.floor(Math.random() * normalTypes.length)];
+    }
+    
+    createEnemy(x, y, enemyType);
+}
+
+// 创建敌人
+function createEnemy(x, y, type) {
+    const enemy = {
+        x: x,
+        y: y,
+        dx: 0,
+        dy: 0,
+        radius: 20,
+        health: 20,
+        maxHealth: 20,
+        type: type,
+        speed: getEnemyBaseSpeed(type),
+        damage: 10,
+        stunned: 0,
+        attackCooldown: 0,
+        state: 'idle',
+        detectionRange: 350,
+        chaseRange: 1000
+    };
+    
+    // 体积变异（5%概率超大个体）
+    if (Math.random() < 0.05) {
+        const sizeMultiplier = randomBetween(1.8, 2.5);
+        enemy.radius *= sizeMultiplier;
+        enemy.health *= sizeMultiplier;
+        enemy.maxHealth = enemy.health;
+    }
+    
+    // 速度变异（8%概率高速个体）
+    if (Math.random() < 0.08) {
+        const speedMultiplier = randomBetween(1.5, 2.0);
+        enemy.speed *= speedMultiplier;
+    }
+    
+    // 根据类型设置特殊属性
+    applyEnemyTypeProperties(enemy);
+    
+    game.enemies.push(enemy);
+}
+
+// 获取敌人基础速度
+function getEnemyBaseSpeed(type) {
+    switch(type) {
+        case 'black': return 2.5;
+        case 'white': return 4.5;
+        default: return 3.5;
+    }
+}
+
+// 应用敌人类型属性
+function applyEnemyTypeProperties(enemy) {
+    switch(enemy.type) {
+        case 'red':
+            enemy.radius *= 1.2; // 半径+20%
+            enemy.health *= 1.5; // 血量+50%
+            enemy.maxHealth = enemy.health;
+            enemy.speed *= 1.1; // 速度+10%
+            break;
+        case 'blue':
+            enemy.radius *= 0.9; // 半径-10%
+            break;
+        case 'black':
+            enemy.radius *= 1.5;
+            enemy.health *= 2;
+            enemy.maxHealth = enemy.health;
+            break;
+        case 'largered':
+            enemy.radius *= 2.5;
+            enemy.health *= 4;
+            enemy.maxHealth = enemy.health;
+            enemy.speed *= 0.8;
+            enemy.moveDirection = 1;
+            enemy.scatterCooldown = 0;
+            enemy.scatterInterval = 120;
+            break;
+        case 'rotating':
+            enemy.radius *= 1.3;
+            enemy.health *= 3;
+            enemy.maxHealth = enemy.health;
+            enemy.speed *= 1.2;
+            enemy.rotationAngle = 0;
+            enemy.rotationSpeed = 0.05;
+            enemy.orbitRadius = 60;
+            enemy.companion = {
+                x: enemy.x + enemy.orbitRadius,
+                y: enemy.y,
+                radius: enemy.radius * 0.8
+            };
+            break;
+        case 'teleport':
+            enemy.radius *= 1.1;
+            enemy.health *= 2.5;
+            enemy.maxHealth = enemy.health;
+            enemy.speed *= 1.3;
+            enemy.teleportCooldown = 0;
+            enemy.teleportInterval = 180;
+            enemy.teleportRange = 400;
+            enemy.isCharging = false;
+            enemy.chargeTime = 0;
+            enemy.maxChargeTime = 60;
+            break;
+        case 'snake':
+            enemy.radius *= 0.9;
+            enemy.health *= 2.5;
+            enemy.maxHealth = enemy.health;
+            enemy.speed *= 0.7;
+            enemy.segments = [];
+            enemy.segmentCount = 4 + Math.floor(Math.random() * 3);
+            enemy.segmentDistance = enemy.radius * 2.5;
+            enemy.segmentSpacing = enemy.radius * 2.0; // 节点间距
+            
+            for (let i = 0; i < enemy.segmentCount; i++) {
+                enemy.segments.push({
+                    x: enemy.x - (i + 1) * enemy.segmentDistance,
+                    y: enemy.y,
+                    radius: enemy.radius * (0.9 - i * 0.1),
+                    health: enemy.health * 0.3,
+                    prevX: enemy.x - (i + 1) * enemy.segmentDistance,
+                    prevY: enemy.y
+                });
+            }
+            break;
+        case 'yellow':
+            enemy.radius *= 1.0;
+            enemy.health *= 1.8;
+            enemy.maxHealth = enemy.health;
+            enemy.speed *= 1.0;
+            enemy.baseRadius = enemy.radius;
+            enemy.baseSpeed = enemy.speed;
+            enemy.baseDamage = 6;
+            enemy.damage = enemy.baseDamage;
+            enemy.minRadius = enemy.radius * 0.5;
+            enemy.maxRadius = enemy.radius * 2.5;
+            enemy.sizeChangeSpeed = 0.02;
+            enemy.isGrowing = true;
+            enemy.sizePhase = 0;
+            break;
+        case 'control':
+            enemy.radius *= 1.1;
+            enemy.health *= 2.0;
+            enemy.maxHealth = enemy.health;
+            enemy.speed *= 0.8;
+            enemy.controlRingRadius = 120;
+            enemy.controlRingMaxRadius = 150;
+            enemy.controlRingMinRadius = 80;
+            enemy.controlRingPulse = 0;
+            enemy.controlRingPulseSpeed = 0.05;
+            enemy.slowEffect = 0.3;
+            enemy.controlCooldown = 0;
+            enemy.controlInterval = 180;
+            break;
+        case 'elite':
+            enemy.radius *= 2.0;
+            enemy.health *= 8;
+            enemy.maxHealth = enemy.health;
+            enemy.speed *= 0.6;
+            enemy.damage = 25;
+            enemy.gravityFieldRadius = 200;
+            enemy.gravityStrength = 0.8;
+            enemy.bigBulletCooldown = 0;
+            enemy.bigBulletInterval = 240;
+            enemy.orbs = [];
+            
+            const orbCount = 3 + Math.floor(Math.random() * 3);
+            for (let i = 0; i < orbCount; i++) {
+                const angle = (i / orbCount) * Math.PI * 2;
+                const orbRadius = enemy.radius * 0.4;
+                const orbitDistance = enemy.radius + 40;
+                enemy.orbs.push({
+                    angle: angle,
+                    radius: orbRadius,
+                    orbitDistance: orbitDistance,
+                    health: enemy.health * 0.2,
+                    maxHealth: enemy.health * 0.2
+                });
+            }
+            break;
+    }
+}
+
+// 注意：玩家更新函数已在inputHandler.js中定义，这里不重复定义以避免冲突
+
+// 游戏主循环更新函数
+function update() {
+    // 更新玩家 - 使用window上的统一动作控制
+    if (window.updatePlayer) {
+        window.updatePlayer();
+    } else {
+        updatePlayer(); // 回退到本地函数
+    }
+    
+    // 更新冲刺状态
+    if (window.updateDash) {
+        window.updateDash();
+    }
+    
+    // 更新蓄力跳跃
+    if (window.updateChargeJump) {
+        window.updateChargeJump();
+    }
+    
+    // 更新相机
+    updateCamera();
+    
+    // 根据性能模式调整更新频率
+    const performanceMultiplier = {
+        'low': 0.5,
+        'medium': 1.0,
+        'high': 1.5
+    }[game.performanceMode];
+    
+    // 检查并生成下方平台
+    generatePlatformBelowPlayer();
+    
+    // 清理远离玩家的地图元素
+    if (game.frameCount % Math.max(1, Math.floor(30 / performanceMultiplier)) === 0) {
+        cleanupDistantMapElements();
+    }
+    
+    // 更新怪物生成点
+    updateSpawnPoints();
+    
+    // 动态生成新的生成点
+    generateNewSpawnPoints();
+    
+    // 强制怪物密度控制
+    enforceMonsterDensity();
+    
+    // 更新狂潮模式
+    updateFrenzyMode();
+    
+    // 动态敌人生成
+    updateEnemySpawning(performanceMultiplier);
+    
+    // 更新带刺球球生成
+    updateSpikedBallSpawning();
+    
+    // 资源恢复系统
+    updateResourceRecovery();
+    
+    // 技能冷却管理
+    updateSkillCooldowns();
+    
+    // 更新游戏对象 - 使用inputHandler中的敌人更新逻辑
+    updateGameObjectsWithInputHandler();
+    
+    // 检查玩家升级
+    checkLevelUp();
+}
+
+// 动态敌人生成
+function updateEnemySpawning(performanceMultiplier) {
+    game.spawnTimer += game.deltaTime;
+    const playerSpeed = Math.sqrt(game.player.dx * game.player.dx + game.player.dy * game.player.dy);
+    const speedMultiplier = Math.max(0.5, Math.min(2.0, playerSpeed / 5));
+    const dynamicSpawnRate = config.enemies.spawnRate * speedMultiplier * performanceMultiplier;
+    
+    const spawnInterval = game.performanceMode === 'high' ? 0.3 : 
+                         game.performanceMode === 'medium' ? 0.5 : 0.8;
+    
+    if (game.spawnTimer >= spawnInterval) {
+        // 性能模式分级处理
+        let spawnProbability, maxEnemies;
+        switch(game.performanceMode) {
+            case 'low':
+                spawnProbability = 0.3;
+                maxEnemies = 15;
+                break;
+            case 'medium':
+                spawnProbability = 0.5;
+                maxEnemies = 25;
+                break;
+            case 'high':
+                spawnProbability = 0.7;
+                maxEnemies = 40;
+                break;
+        }
+        
+        if (game.enemies.length < maxEnemies && Math.random() < spawnProbability) {
+            // 狂潮模式特殊逻辑
+            if (game.frenzyMode.active) {
+                if (Math.random() < 0.6) {
+                    // 60%概率双生
+                    spawnEnemyNearPlayer();
+                    spawnEnemyNearPlayer();
+                } else if (Math.random() < 0.3) {
+                    // 30%概率三生
+                    spawnEnemyNearPlayer();
+                    spawnEnemyNearPlayer();
+                    spawnEnemyNearPlayer();
+                } else {
+                    spawnEnemyNearPlayer();
+                }
+            } else {
+                spawnEnemyNearPlayer();
+            }
+        }
+        
+        game.spawnTimer = 0;
+    }
+}
+
+// 在玩家附近生成敌人
+function spawnEnemyNearPlayer() {
+    const angle = Math.random() * Math.PI * 2;
+    const distance = randomBetween(400, 800);
+    const x = game.player.x + Math.cos(angle) * distance;
+    const y = game.player.y + Math.sin(angle) * distance;
+    
+    const enemyTypes = ['red', 'blue', 'white', 'black', 'largered', 'rotating', 'teleport', 'snake', 'yellow', 'control'];
+    const type = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
+    
+    createEnemy(x, y, type);
+}
+
+// 更新带刺球球生成
+function updateSpikedBallSpawning() {
+    // 根据性能模式设置生成概率和数量限制
+    let spawnChance, maxSpikedBalls;
+    switch(game.performanceMode) {
+        case 'low':
+            spawnChance = 0.005; // 0.5%
+            maxSpikedBalls = 5;
+            break;
+        case 'medium':
+            spawnChance = 0.01; // 1%
+            maxSpikedBalls = 10;
+            break;
+        case 'high':
+            spawnChance = 0.015; // 1.5%
+            maxSpikedBalls = 15;
+            break;
+    }
+    
+    if (game.spikedBalls.length < maxSpikedBalls && Math.random() < spawnChance) {
+        const angle = Math.random() * Math.PI * 2;
+        const distance = randomBetween(300, 600);
+        const x = game.player.x + Math.cos(angle) * distance;
+        const y = game.player.y + Math.sin(angle) * distance;
+        
+        game.spikedBalls.push({
+            x: x,
+            y: y,
+            dx: randomBetween(-2, 2),
+            dy: randomBetween(-2, 2),
+            radius: randomBetween(15, 25),
+            damage: randomBetween(15, 25),
+            rotationAngle: 0,
+            rotationSpeed: randomBetween(0.05, 0.15)
+        });
+    }
+}
+
+// 资源恢复系统
+function updateResourceRecovery() {
+    // 精力值恢复
+    if (game.player.stamina < game.player.maxStamina) {
+        game.player.stamina += config.player.staminaRecovery;
+        if (game.player.stamina > game.player.maxStamina) {
+            game.player.stamina = game.player.maxStamina;
+        }
+    }
+    
+    // 魔法值恢复
+    if (game.player.mana < game.player.maxMana) {
+        game.player.mana += 0.3; // 固定恢复速率
+        if (game.player.mana > game.player.maxMana) {
+            game.player.mana = game.player.maxMana;
+        }
+    }
+    
+    // 怒气值恢复（缓慢恢复）
+    if (game.player.rage < game.player.maxRage) {
+        game.player.rage += 0.1; // 缓慢恢复速率
+        if (game.player.rage > game.player.maxRage) {
+            game.player.rage = game.player.maxRage;
+        }
+    }
+    
+    // 更新被击中后的怒气加成时间
+    if (game.player.lastHitTime > 0) {
+        game.player.lastHitTime -= game.deltaTime;
+        if (game.player.lastHitTime <= 0) {
+            game.player.hitRageMultiplier = 1.0; // 重置怒气倍率
+        }
+    }
+}
+
+// 技能冷却管理
+function updateSkillCooldowns() {
+    // AOE攻击冷却
+    if (game.player.aoeAttackCooldown > 0) {
+        game.player.aoeAttackCooldown -= game.deltaTime;
+    }
+    
+    // 激光技能冷却
+    if (game.player.laser.cooldownTimer > 0) {
+        game.player.laser.cooldownTimer -= game.deltaTime;
+    }
+    
+    // 风火轮技能冷却
+    if (game.player.windFireWheels.cooldownTimer > 0) {
+        game.player.windFireWheels.cooldownTimer -= game.deltaTime;
+    }
+}
+
+// 更新伤害数值显示
+function updateDamageNumbers() {
+    for (let i = game.damageNumbers.length - 1; i >= 0; i--) {
+        const damageNum = game.damageNumbers[i];
+        
+        // 更新位置
+        damageNum.y += damageNum.dy;
+        damageNum.dy *= 0.98; // 减速效果
+        
+        // 更新透明度
+        damageNum.lifetime--;
+        damageNum.alpha = damageNum.lifetime / 60;
+        
+        // 移除过期的数值
+        if (damageNum.lifetime <= 0) {
+            game.damageNumbers.splice(i, 1);
+        }
+    }
+}
+
+// 更新经验值数值显示
+function updateExperienceNumbers() {
+    for (let i = game.experienceNumbers.length - 1; i >= 0; i--) {
+        const expNum = game.experienceNumbers[i];
+        
+        // 更新位置
+        expNum.y += expNum.dy;
+        expNum.dy *= 0.98; // 减速效果
+        
+        // 更新透明度
+        expNum.lifetime--;
+        expNum.alpha = expNum.lifetime / 60;
+        
+        // 移除过期的数值
+        if (expNum.lifetime <= 0) {
+            game.experienceNumbers.splice(i, 1);
+        }
+    }
+}
+
+// 更新浮动文本显示
+function updateFloatingTexts() {
+    for (let i = game.floatingTexts.length - 1; i >= 0; i--) {
+        const floatingText = game.floatingTexts[i];
+        
+        // 更新位置
+        floatingText.y += floatingText.dy;
+        floatingText.dy *= 0.98; // 减速效果
+        
+        // 更新透明度
+        floatingText.lifetime--;
+        floatingText.alpha = floatingText.lifetime / 60;
+        
+        // 移除过期的文本
+        if (floatingText.lifetime <= 0) {
+            game.floatingTexts.splice(i, 1);
+        }
+    }
+}
+
+// 更新暴击显示
+function updateCriticalDisplays() {
+    for (let i = game.criticalDisplays.length - 1; i >= 0; i--) {
+        const critical = game.criticalDisplays[i];
+        
+        // 更新生命周期
+        critical.lifetime--;
+        
+        // 缩放动画
+        if (critical.lifetime > 60) {
+            critical.scale = Math.min(1.5, critical.scale + 0.05);
+        } else {
+            critical.scale = Math.max(0.5, critical.scale - 0.02);
+        }
+        
+        // 更新字体大小 (基于缩放)
+        critical.size = 200 * critical.scale;
+        
+        // 透明度动画
+        critical.alpha = critical.lifetime / 90;
+        
+        // 颜色渐变效果
+        const colorIntensity = critical.alpha;
+        critical.color = `rgba(255, ${Math.floor(215 * colorIntensity)}, 0, ${critical.alpha})`;
+        
+        // 移除过期的显示
+        if (critical.lifetime <= 0) {
+            game.criticalDisplays.splice(i, 1);
+        }
+    }
+}
+
+// 更新AOE圈圈效果
+function updateAOERings() {
+    for (let i = game.aoeRings.length - 1; i >= 0; i--) {
+        const ring = game.aoeRings[i];
+        
+        // 更新生命周期
+        ring.lifetime--;
+        
+        // 扩展半径
+        ring.radius += ring.expansionSpeed;
+        
+        // 透明度衰减
+        ring.alpha = ring.lifetime / ring.maxLifetime;
+        
+        // 移除过期的圈圈
+        if (ring.lifetime <= 0) {
+            game.aoeRings.splice(i, 1);
+        }
+    }
+}
+
+// 更新游戏对象
+function updateGameObjects() {
+    // 更新敌人
+    updateEnemies();
+    
+    // 更新投射物
+    updateProjectiles();
+    
+    // 更新友方球球
+    updateFriendlyBalls();
+    
+    // 更新带刺球球
+    updateSpikedBalls();
+    
+    // 更新泡泡道具
+    updateBubblePowerups();
+    
+    // 更新粒子效果
+    updateParticles();
+    
+    // 更新伤害数值显示
+    updateDamageNumbers();
+    
+    // 更新经验值数值显示
+    updateExperienceNumbers();
+    
+    // 更新暴击显示
+    updateCriticalDisplays();
+    
+    // 更新浮动文本
+    updateFloatingTexts();
+    
+    // 更新AOE圈圈
+    updateAOERings();
+    
+    // 更新风火轮技能
+    updateWindFireWheels();
+    
+    // 更新激光技能
+    updateLaser();
+}
+
+// 使用inputHandler中的敌人更新逻辑的游戏对象更新函数
+function updateGameObjectsWithInputHandler() {
+    // 更新敌人 - 使用window上的统一敌人AI
+    if (window.updateEnemies) {
+        window.updateEnemies();
+    } else {
+        updateEnemies(); // 回退到本地函数
+    }
+    
+    // 更新投射物
+    updateProjectiles();
+    
+    // 更新友方球球
+    updateFriendlyBalls();
+    
+    // 更新带刺球球
+    updateSpikedBalls();
+    
+    // 更新泡泡道具
+    updateBubblePowerups();
+    
+    // 更新粒子效果
+    updateParticles();
+    
+    // 更新伤害数值显示
+    updateDamageNumbers();
+    
+    // 更新经验值数值显示
+    updateExperienceNumbers();
+    
+    // 更新暴击显示
+    updateCriticalDisplays();
+    
+    // 更新浮动文本
+    updateFloatingTexts();
+    
+    // 更新AOE圈圈
+    updateAOERings();
+    
+    // 更新风火轮技能
+    updateWindFireWheels();
+    
+    // 更新激光技能
+    updateLaser();
+}
+
+// 平台碰撞处理
+function handlePlatformCollision(player, platform) {
+    // 检测碰撞方向
+    const playerCenterX = player.x;
+    const playerCenterY = player.y;
+    const platformCenterX = platform.x + platform.width / 2;
+    const platformCenterY = platform.y + platform.height / 2;
+    
+    const dx = playerCenterX - platformCenterX;
+    const dy = playerCenterY - platformCenterY;
+    
+    const overlapX = (player.radius + platform.width / 2) - Math.abs(dx);
+    const overlapY = (player.radius + platform.height / 2) - Math.abs(dy);
+    
+    if (overlapX > 0 && overlapY > 0) {
+        // 确定碰撞方向
+        if (overlapX < overlapY) {
+            // 水平碰撞
+            if (dx > 0) {
+                player.x = platform.x + platform.width + player.radius;
+            } else {
+                player.x = platform.x - player.radius;
+            }
+            player.dx = 0;
+        } else {
+            // 垂直碰撞
+            if (dy > 0) {
+                player.y = platform.y + platform.height + player.radius;
+                player.dy = Math.max(0, player.dy);
+            } else {
+                player.y = platform.y - player.radius;
+                player.dy = 0;
+                player.isJumping = false;
+                player.jumpCount = 0;
+                return true; // 在平台上
+            }
+        }
+    }
+    
+    return false;
+}
+
+// 通用碰撞检测
+function checkCollision(obj1, obj2) {
+    const dx = obj1.x - obj2.x;
+    const dy = obj1.y - obj2.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    return distance < (obj1.radius + obj2.radius);
+}
+
+// 创建爆炸效果
+function createExplosion(x, y, radius, damage) {
+    // 对范围内的敌人造成伤害
+    for (const enemy of game.enemies) {
+        const dx = enemy.x - x;
+        const dy = enemy.y - y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance < radius) {
+            enemy.health -= damage;
+            
+            // 击退效果
+            const knockback = 15;
+            const angle = Math.atan2(dy, dx);
+            enemy.x += Math.cos(angle) * knockback;
+            enemy.y += Math.sin(angle) * knockback;
+            
+            // 添加爆炸粒子
+            for (let i = 0; i < 10; i++) {
+                game.particles.push({
+                    x: enemy.x,
+                    y: enemy.y,
+                    dx: randomBetween(-5, 5),
+                    dy: randomBetween(-5, 5),
+                    radius: randomBetween(2, 5),
+                    color: '#FF4444',
+                    lifetime: 30
+                });
+            }
+        }
+    }
+}
+
+// 开始冲刺
+function startDash(direction) {
+    game.player.isDashing = true;
+    game.player.dashTime = config.player.dashDuration;
+    game.player.dx = direction * config.player.dashSpeed;
+    game.player.stamina -= 20;
+    
+    // 冲刺粒子效果
+    for (let i = 0; i < 15; i++) {
+        game.particles.push({
+            x: game.player.x,
+            y: game.player.y,
+            dx: -direction * randomBetween(1, 3),
+            dy: randomBetween(-1, 1),
+            radius: randomBetween(2, 4),
+            color: '#FFFFFF',
+            lifetime: 20
+        });
+    }
+}
+
+// 开始垂直冲刺
+function startVerticalDash(direction) {
+    if (game.player.stamina >= 20) {
+        game.player.isDashing = true;
+        game.player.dashTime = config.player.dashDuration;
+        game.player.dy = direction * config.player.dashSpeed;
+        game.player.stamina -= 20;
+        
+        // 如果向上冲刺，重置跳跃状态
+        if (direction < 0) {
+            game.player.isJumping = false;
+            game.player.jumpCount = 0;
+        }
+        
+        // 垂直冲刺粒子效果
+        for (let i = 0; i < 15; i++) {
+            game.particles.push({
+                x: game.player.x,
+                y: game.player.y,
+                dx: randomBetween(-1, 1),
+                dy: -direction * randomBetween(1, 3),
+                radius: randomBetween(2, 4),
+                color: '#FFFFFF',
+                lifetime: 20
+            });
+        }
+    }
+}
+
+// 创建伤害数值显示
+function createDamageNumber(x, y, damage, isCritical = false) {
+    const damageNumber = ObjectPool.getDamageNumber();
+    damageNumber.x = x + randomBetween(-20, 20);
+    damageNumber.y = y - 10;
+    damageNumber.damage = Math.floor(damage); // 确保伤害值为整数
+    damageNumber.isCritical = isCritical;
+    damageNumber.lifetime = 60;
+    damageNumber.dy = -2;
+    damageNumber.alpha = 1.0;
+    damageNumber.active = true;
+    game.damageNumbers.push(damageNumber);
+}
+
+// 创建暴击显示
+function createCriticalDisplay(damage) {
+    const criticalDisplay = {
+        damage: damage,
+        lifetime: 90,
+        scale: 0.5,
+        alpha: 1.0,
+        active: true,
+        size: 120, // 字体大小放大3倍 (原来40px)
+        text: '暴击!',
+        color: 'linear-gradient(45deg, #FFD700, #FF4500)',
+        x: game.gameWidth / 2,
+        y: game.gameHeight / 2
+    };
+    game.criticalDisplays.push(criticalDisplay);
+}
+
+// 创建经验数值显示
+function createExperienceNumber(x, y, exp) {
+    const expNumber = ObjectPool.getExperienceNumber();
+    expNumber.x = x + randomBetween(-15, 15);
+    expNumber.y = y - 5;
+    expNumber.exp = Math.floor(exp); // 确保经验值为整数
+    expNumber.lifetime = 45;
+    expNumber.dy = -1.5;
+    expNumber.alpha = 1.0;
+    expNumber.active = true;
+    game.experienceNumbers.push(expNumber);
+}
+
+// 随机数生成辅助函数
+function randomBetween(min, max) {
+    return min + Math.random() * (max - min);
+}
+
+// 激活风火轮技能
+function activateWindFireWheels() {
+    if (game.player.rage < game.player.windFireWheels.rageCost || game.player.windFireWheels.cooldownTimer > 0) return;
+    
+    game.player.windFireWheels.active = true;
+    game.player.windFireWheels.duration = game.player.windFireWheels.maxDuration;
+    game.player.windFireWheels.cooldownTimer = game.player.windFireWheels.cooldown;
+    game.player.windFireWheels.rotation = 0; // 初始化旋转角度
+    game.player.rage -= game.player.windFireWheels.rageCost;
+    
+    // 风火轮激活粒子效果
+    for (let i = 0; i < 30; i++) {
+        game.particles.push({
+            x: game.player.x + (Math.random() - 0.5) * 60,
+            y: game.player.y + (Math.random() - 0.5) * 60,
+            dx: (Math.random() - 0.5) * 15,
+            dy: (Math.random() - 0.5) * 15,
+            radius: Math.random() * 8 + 4,
+            color: `hsl(${Math.random() * 60 + 15}, 100%, 70%)`,
+            lifetime: 50
+        });
+    }
+}
+
+// 更新风火轮技能
+function updateWindFireWheels() {
+    if (!game.player.windFireWheels.active) return;
+    
+    // 减少持续时间
+    game.player.windFireWheels.duration -= game.deltaTime;
+    
+    // 如果持续时间结束或怒气值为0，停用技能
+    if (game.player.windFireWheels.duration <= 0 || game.player.rage <= 0) {
+        game.player.windFireWheels.active = false;
+        game.player.windFireWheels.orbs = [];
+        return;
+    }
+    
+    // 持续消耗怒气
+    game.player.rage -= 0.2;
+    if (game.player.rage < 0) game.player.rage = 0;
+    
+    // 更新旋转角度
+    game.player.windFireWheels.rotation += game.player.windFireWheels.rotationSpeed;
+    
+    // 检测与敌人的碰撞
+    for (let i = 0; i < 4; i++) {
+        const angle = game.player.windFireWheels.rotation + (i * Math.PI / 2);
+        const orbX = game.player.x + Math.cos(angle) * game.player.windFireWheels.radius;
+        const orbY = game.player.y + Math.sin(angle) * game.player.windFireWheels.radius;
+        
+        // 检测与敌人的碰撞
+        for (let j = game.enemies.length - 1; j >= 0; j--) {
+            const enemy = game.enemies[j];
+            const dx = orbX - enemy.x;
+            const dy = orbY - enemy.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance < game.player.windFireWheels.orbSize + enemy.radius) {
+                // 对敌人造成伤害
+                enemy.health -= game.player.windFireWheels.damage;
+                
+                // 击退效果
+                const knockbackForce = 10;
+                const knockbackAngle = Math.atan2(dy, dx);
+                enemy.dx += Math.cos(knockbackAngle) * knockbackForce;
+                enemy.dy += Math.sin(knockbackAngle) * knockbackForce;
+                
+                // 伤害数值显示
+                createDamageNumber(enemy.x, enemy.y, game.player.windFireWheels.damage);
+                
+                // 碰撞粒子效果
+                for (let k = 0; k < 5; k++) {
+                    game.particles.push({
+                        x: orbX,
+                        y: orbY,
+                        dx: randomBetween(-3, 3),
+                        dy: randomBetween(-3, 3),
+                        radius: randomBetween(2, 4),
+                        color: '#FF6B35',
+                        lifetime: 20
+                    });
+                }
+            }
+        }
+    }
+    
+    // 生成风火轮粒子效果
+    if (Math.random() < 0.3) {
+        const angle = game.player.windFireWheels.rotation;
+        for (let i = 0; i < 4; i++) {
+            const wheelAngle = angle + (i * Math.PI / 2);
+            const wheelX = game.player.x + Math.cos(wheelAngle) * game.player.windFireWheels.radius;
+            const wheelY = game.player.y + Math.sin(wheelAngle) * game.player.windFireWheels.radius;
+            
+            game.particles.push({
+                x: wheelX,
+                y: wheelY,
+                dx: Math.cos(wheelAngle) * 3,
+                dy: Math.sin(wheelAngle) * 3,
+                radius: Math.random() * 4 + 2,
+                color: `hsl(${Math.random() * 60 + 15}, 100%, 70%)`,
+                lifetime: 20
+            });
+        }
+    }
+    
+    // 检测与敌人的碰撞
+    for (let i = game.enemies.length - 1; i >= 0; i--) {
+        const enemy = game.enemies[i];
+        const dx = enemy.x - game.player.x;
+        const dy = enemy.y - game.player.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance < game.player.windFireWheels.radius + enemy.radius) {
+            // 计算伤害
+            let damage = game.player.windFireWheels.damage;
+            
+            // 暴击判定
+            const isCritical = Math.random() < game.player.criticalRate;
+            if (isCritical) {
+                damage = Math.floor(damage * game.player.criticalMultiplier);
+                createCriticalDisplay(damage);
+            }
+            
+            // 对敌人造成伤害
+            enemy.health -= damage;
+            
+            // 击退效果
+            const knockbackForce = 15;
+            const angle = Math.atan2(dy, dx);
+            enemy.dx += Math.cos(angle) * knockbackForce;
+            enemy.dy += Math.sin(angle) * knockbackForce;
+            
+            // 伤害数值显示
+            createDamageNumber(enemy.x, enemy.y - 20, damage, isCritical);
+            
+            // 击中粒子效果
+            for (let j = 0; j < 10; j++) {
+                game.particles.push({
+                    x: enemy.x,
+                    y: enemy.y,
+                    dx: (Math.random() - 0.5) * 10,
+                    dy: (Math.random() - 0.5) * 10,
+                    radius: Math.random() * 4 + 2,
+                    color: '#FF6B35',
+                    lifetime: 25
+                });
+            }
+            
+            // 检查敌人是否死亡
+            if (enemy.health <= 0) {
+                handleEnemyDeath(enemy, i);
+            }
+        }
+    }
+}
+
+// 激活激光技能
+function activateLaser() {
+    if (game.player.mana < game.player.laser.minMana || game.player.laser.cooldownTimer > 0) return;
+    
+    game.player.laser.active = true;
+    game.player.laser.cooldownTimer = game.player.laser.cooldown;
+    
+    // 计算激光起点（玩家中心）
+    game.player.laser.startX = game.player.x;
+    game.player.laser.startY = game.player.y;
+    
+    // 计算激光终点（朝鼠标方向）
+    const mouseWorldX = game.mouse.x - game.gameWidth/2 + game.player.x;
+    const mouseWorldY = game.mouse.y - game.gameHeight/2 + game.player.y;
+    const dx = mouseWorldX - game.player.x;
+    const dy = mouseWorldY - game.player.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    if (distance > 0) {
+        const normalizedDx = dx / distance;
+        const normalizedDy = dy / distance;
+        
+        game.player.laser.endX = game.player.x + normalizedDx * game.player.laser.range;
+        game.player.laser.endY = game.player.y + normalizedDy * game.player.laser.range;
+    }
+}
+
+// 更新激光技能
+function updateLaser() {
+    if (!game.player.laser.active) {
+        // 重置所有敌人的激光伤害计时器
+        for (const enemy of game.enemies) {
+            enemy.laserDamageTimer = 0;
+        }
+        return;
+    }
+    
+    // 消耗魔力
+    game.player.mana -= game.player.laser.manaCost;
+    if (game.player.mana < 0) {
+        game.player.mana = 0;
+        game.player.laser.active = false;
+        // 重置所有敌人的激光伤害计时器
+        for (const enemy of game.enemies) {
+            enemy.laserDamageTimer = 0;
+        }
+        return;
+    }
+    
+    // 更新激光方向（跟随鼠标）
+    game.player.laser.startX = game.player.x;
+    game.player.laser.startY = game.player.y;
+    
+    const mouseWorldX = game.mouse.x - game.gameWidth/2 + game.player.x;
+    const mouseWorldY = game.mouse.y - game.gameHeight/2 + game.player.y;
+    const dx = mouseWorldX - game.player.x;
+    const dy = mouseWorldY - game.player.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    if (distance > 0) {
+        const normalizedDx = dx / distance;
+        const normalizedDy = dy / distance;
+        
+        game.player.laser.endX = game.player.x + normalizedDx * game.player.laser.range;
+        game.player.laser.endY = game.player.y + normalizedDy * game.player.laser.range;
+    }
+    
+    // 检测激光与敌人的碰撞
+    for (let i = game.enemies.length - 1; i >= 0; i--) {
+        const enemy = game.enemies[i];
+        
+        // 初始化敌人的激光伤害计时器
+        if (enemy.laserDamageTimer === undefined) {
+            enemy.laserDamageTimer = 0;
+        }
+        
+        // 计算点到线段的距离
+        const laserLength = Math.sqrt(
+            (game.player.laser.endX - game.player.laser.startX) ** 2 + 
+            (game.player.laser.endY - game.player.laser.startY) ** 2
+        );
+        
+        if (laserLength === 0) continue;
+        
+        const t = Math.max(0, Math.min(1, 
+            ((enemy.x - game.player.laser.startX) * (game.player.laser.endX - game.player.laser.startX) + 
+             (enemy.y - game.player.laser.startY) * (game.player.laser.endY - game.player.laser.startY)) / (laserLength ** 2)
+        ));
+        
+        const closestX = game.player.laser.startX + t * (game.player.laser.endX - game.player.laser.startX);
+        const closestY = game.player.laser.startY + t * (game.player.laser.endY - game.player.laser.startY);
+        
+        const distanceToLaser = Math.sqrt((enemy.x - closestX) ** 2 + (enemy.y - closestY) ** 2);
+        
+        if (distanceToLaser < enemy.radius + game.player.laser.width / 2) {
+            // 更新敌人的激光伤害计时器
+            enemy.laserDamageTimer++;
+            
+            // 检查是否可以造成伤害（每个敌人独立的伤害间隔）
+            if (enemy.laserDamageTimer >= game.player.laser.damageInterval) {
+                // 计算伤害（基础伤害 + 百分比伤害）
+                const percentDamage = enemy.maxHealth * game.player.laser.percentDamage;
+                let totalDamage = game.player.laser.damage + percentDamage;
+                
+                // 暴击判定
+                const isCritical = Math.random() < game.player.criticalRate;
+                if (isCritical) {
+                    totalDamage = Math.floor(totalDamage * game.player.criticalMultiplier);
+                }
+                
+                // 对敌人造成伤害
+                enemy.health -= totalDamage;
+                
+                // 暴击时在屏幕中央显示
+                if (isCritical) {
+                    createCriticalDisplay(Math.floor(totalDamage));
+                }
+                
+                // 重置该敌人的伤害计时器
+                enemy.laserDamageTimer = 0;
+                
+                // 击退效果
+                const knockbackForce = 12;
+                const angle = Math.atan2(enemy.y - game.player.y, enemy.x - game.player.x);
+                enemy.dx += Math.cos(angle) * knockbackForce;
+                enemy.dy += Math.sin(angle) * knockbackForce;
+                
+                // 伤害数值显示
+                createDamageNumber(enemy.x, enemy.y - 20, Math.round(totalDamage), isCritical);
+                
+                // 激光命中粒子效果
+                for (let j = 0; j < 8; j++) {
+                    game.particles.push({
+                        x: closestX,
+                        y: closestY,
+                        dx: (Math.random() - 0.5) * 8,
+                        dy: (Math.random() - 0.5) * 8,
+                        radius: Math.random() * 4 + 2,
+                        color: `hsl(${Math.random() * 60 + 15}, 100%, 60%)`,
+                        lifetime: 30
+                    });
+                }
+            }
+        } else {
+            // 如果敌人不在激光范围内，重置其伤害计时器
+            enemy.laserDamageTimer = 0;
+        }
+            
+        // 检查敌人是否死亡
+        if (enemy.health <= 0) {
+            handleEnemyDeath(enemy, i);
+        }
+    }
+}
+
+// 检查指定位置是否有碰撞
+function checkCollisionAtPosition(x, y, radius) {
+    // 检查与平台的碰撞
+    for (const platform of game.platforms) {
+        if (x + radius > platform.x && x - radius < platform.x + platform.width &&
+            y + radius > platform.y && y - radius < platform.y + platform.height) {
+            return true;
+        }
+    }
+    
+    // 检查与地面方块的碰撞
+    for (const block of game.groundBlocks) {
+        if (x + radius > block.x && x - radius < block.x + block.width &&
+            y + radius > block.y && y - radius < block.y + block.height) {
+            return true;
+        }
+    }
+    
+    // 检查与大陆方块的碰撞
+    for (const block of game.mainlandBlocks) {
+        if (x + radius > block.x && x - radius < block.x + block.width &&
+            y + radius > block.y && y - radius < block.y + block.height) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+// 等级提升检查
+function checkLevelUp() {
+    if (game.player.exp >= game.player.expToNextLevel) {
+        game.player.level++;
+        game.player.exp -= game.player.expToNextLevel;
+        game.player.expToNextLevel = Math.floor(game.player.expToNextLevel * 1.2);
+        
+        // 属性提升
+        game.player.maxHealth += 20;
+        game.player.health = game.player.maxHealth;
+        game.player.maxMana += 10;
+        game.player.mana = game.player.maxMana;
+        game.player.maxStamina += 5;
+        game.player.stamina = game.player.maxStamina;
+        game.player.attackPower += 5;
+        
+        // 球球尺寸增长（上限40）
+        if (game.player.radius < 40) {
+            game.player.radius += 1;
+        }
+        
+        // 升级提示
+        createFloatingText(
+            game.player.x, 
+            game.player.y - 50, 
+            `等级提升! Lv.${game.player.level}`, 
+            '#FFD700', 
+            120, 
+            24
+        );
+    }
+}
+
+// 更新敌人
+function updateEnemies() {
+    for (let i = game.enemies.length - 1; i >= 0; i--) {
+        const enemy = game.enemies[i];
+        
+        // 眩晕状态处理
+        if (enemy.stunned > 0) {
+            enemy.stunned--;
+            continue;
+        }
+        
+        // 根据敌人类型更新行为
+        updateEnemyByType(enemy);
+        
+        // 基础移动逻辑
+        updateEnemyMovement(enemy);
+        
+        // 碰撞检测
+        updateEnemyCollisions(enemy, i);
+        
+        // 清理死亡敌人
+        if (enemy.health <= 0) {
+            handleEnemyDeath(enemy, i);
+        }
+    }
+}
+
+// 根据敌人类型更新行为
+function updateEnemyByType(enemy) {
+    switch(enemy.type) {
+        case 'rotating':
+            updateRotatingEnemy(enemy);
+            break;
+        case 'teleport':
+            updateTeleportEnemy(enemy);
+            break;
+        case 'snake':
+            updateSnakeEnemy(enemy);
+            break;
+        case 'yellow':
+            updateYellowEnemy(enemy);
+            break;
+        case 'control':
+            updateControlEnemy(enemy);
+            break;
+        case 'elite':
+            updateEliteEnemy(enemy);
+            break;
+        case 'largered':
+            updateLargeRedEnemy(enemy);
+            break;
+    }
+}
+
+// 更新旋转敌人
+function updateRotatingEnemy(enemy) {
+    enemy.rotationAngle += enemy.rotationSpeed;
+    if (enemy.companion) {
+        enemy.companion.x = enemy.x + Math.cos(enemy.rotationAngle) * enemy.orbitRadius;
+        enemy.companion.y = enemy.y + Math.sin(enemy.rotationAngle) * enemy.orbitRadius;
+    }
+}
+
+// 更新传送敌人
+function updateTeleportEnemy(enemy) {
+    enemy.teleportCooldown++;
+    
+    if (enemy.isCharging) {
+        enemy.chargeTime++;
+        if (enemy.chargeTime >= enemy.maxChargeTime) {
+            // 执行传送
+            const angle = Math.random() * Math.PI * 2;
+            const distance = randomBetween(100, enemy.teleportRange);
+            enemy.x += Math.cos(angle) * distance;
+            enemy.y += Math.sin(angle) * distance;
+            
+            enemy.isCharging = false;
+            enemy.chargeTime = 0;
+            enemy.teleportCooldown = 0;
+        }
+    } else if (enemy.teleportCooldown >= enemy.teleportInterval) {
+        enemy.isCharging = true;
+        enemy.chargeTime = 0;
+    }
+}
+
+// 更新贪吃蛇敌人
+function updateSnakeEnemy(enemy) {
+    // 更新蛇身节点位置
+    if (enemy.segments && enemy.segments.length > 0) {
+        // 记录蛇头的前一个位置
+        const prevX = enemy.x - enemy.dx;
+        const prevY = enemy.y - enemy.dy;
+        
+        // 每个节点跟随前一个节点
+        for (let segIndex = 0; segIndex < enemy.segments.length; segIndex++) {
+            const segment = enemy.segments[segIndex];
+            const targetX = segIndex === 0 ? prevX : enemy.segments[segIndex - 1].prevX;
+            const targetY = segIndex === 0 ? prevY : enemy.segments[segIndex - 1].prevY;
+            
+            // 保存当前位置作为下一个节点的目标
+            segment.prevX = segment.x;
+            segment.prevY = segment.y;
+            
+            // 计算跟随方向
+            const segDx = targetX - segment.x;
+            const segDy = targetY - segment.y;
+            const segDistance = Math.sqrt(segDx * segDx + segDy * segDy);
+            
+            // 如果距离超过节点间距，则移动节点
+            if (segDistance > enemy.segmentSpacing) {
+                const moveRatio = (segDistance - enemy.segmentSpacing) / segDistance;
+                segment.x += segDx * moveRatio;
+                segment.y += segDy * moveRatio;
+            }
+            
+            // 检测蛇身节点与玩家的碰撞
+            const segPlayerDx = game.player.x - segment.x;
+            const segPlayerDy = game.player.y - segment.y;
+            const segPlayerDistance = Math.sqrt(segPlayerDx * segPlayerDx + segPlayerDy * segPlayerDy);
+            
+            if (segPlayerDistance < segment.radius + game.player.radius) {
+                // 蛇身碰撞伤害
+                game.player.health -= 3;
+                
+                // 轻微击退
+                const knockback = 5;
+                game.player.dx += Math.cos(Math.atan2(segPlayerDy, segPlayerDx)) * knockback;
+                game.player.dy += Math.sin(Math.atan2(segPlayerDy, segPlayerDx)) * knockback;
+                
+                // 增加怒气
+                game.player.hitRageMultiplier = 1.5;
+                game.player.lastHitTime = 120;
+            }
+        }
+    }
+}
+
+// 更新黄色敌人（大小变化）
+function updateYellowEnemy(enemy) {
+    enemy.sizePhase += enemy.sizeChangeSpeed;
+    
+    if (enemy.isGrowing) {
+        enemy.radius = enemy.baseRadius + (enemy.maxRadius - enemy.baseRadius) * Math.sin(enemy.sizePhase);
+        if (enemy.radius >= enemy.maxRadius * 0.95) {
+            enemy.isGrowing = false;
+        }
+    } else {
+        enemy.radius = enemy.maxRadius - (enemy.maxRadius - enemy.minRadius) * Math.sin(enemy.sizePhase);
+        if (enemy.radius <= enemy.minRadius * 1.05) {
+            enemy.isGrowing = true;
+        }
+    }
+    
+    // 根据大小调整伤害和速度
+    const sizeRatio = enemy.radius / enemy.baseRadius;
+    enemy.damage = Math.floor(enemy.baseDamage * sizeRatio);
+    enemy.speed = enemy.baseSpeed / sizeRatio;
+}
+
+// 更新控制敌人
+function updateControlEnemy(enemy) {
+    enemy.controlCooldown++;
+    enemy.controlRingPulse += enemy.controlRingPulseSpeed;
+    
+    // 控制圈脉冲效果
+    enemy.controlRingRadius = enemy.controlRingMinRadius + 
+        (enemy.controlRingMaxRadius - enemy.controlRingMinRadius) * 
+        (0.5 + 0.5 * Math.sin(enemy.controlRingPulse));
+    
+    // 检查玩家是否在控制圈内
+    if (enemy.controlCooldown >= enemy.controlInterval) {
+        const dx = game.player.x - enemy.x;
+        const dy = game.player.y - enemy.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance < enemy.controlRingRadius) {
+            // 对玩家施加减速效果
+            game.player.dx *= enemy.slowEffect;
+            game.player.dy *= enemy.slowEffect;
+            
+            // 重置冷却
+            enemy.controlCooldown = 0;
+        }
+    }
+}
+
+// 更新精英敌人
+function updateEliteEnemy(enemy) {
+    // 更新环绕小球
+    for (const orb of enemy.orbs) {
+        orb.angle += 0.02;
+        orb.x = enemy.x + Math.cos(orb.angle) * orb.orbitDistance;
+        orb.y = enemy.y + Math.sin(orb.angle) * orb.orbitDistance;
+    }
+    
+    // 引力场效果
+    const dx = game.player.x - enemy.x;
+    const dy = game.player.y - enemy.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    if (distance < enemy.gravityFieldRadius) {
+        const pullStrength = enemy.gravityStrength * (1 - distance / enemy.gravityFieldRadius);
+        const angle = Math.atan2(dy, dx);
+        game.player.dx += Math.cos(angle) * pullStrength;
+        game.player.dy += Math.sin(angle) * pullStrength;
+    }
+    
+    // 大型子弹攻击
+    enemy.bigBulletCooldown++;
+    if (enemy.bigBulletCooldown >= enemy.bigBulletInterval && distance < 600) {
+        const angle = Math.atan2(dy, dx);
+        game.projectiles.push({
+            x: enemy.x,
+            y: enemy.y,
+            dx: Math.cos(angle) * 6,
+            dy: Math.sin(angle) * 6,
+            radius: 20,
+            damage: enemy.damage,
+            owner: 'enemy',
+            lifetime: 120,
+            active: true
+        });
+        enemy.bigBulletCooldown = 0;
+    }
+}
+
+// 更新大型红色敌人
+function updateLargeRedEnemy(enemy) {
+    enemy.scatterCooldown++;
+    
+    if (enemy.scatterCooldown >= enemy.scatterInterval) {
+        // 散射攻击
+        for (let i = 0; i < 8; i++) {
+            const angle = (i / 8) * Math.PI * 2;
+            game.projectiles.push({
+                x: enemy.x,
+                y: enemy.y,
+                dx: Math.cos(angle) * 8,
+                dy: Math.sin(angle) * 8,
+                radius: 12,
+                damage: 15,
+                owner: 'enemy',
+                lifetime: 100,
+                active: true
+            });
+        }
+        enemy.scatterCooldown = 0;
+    }
+}
+
+// 更新敌人移动
+function updateEnemyMovement(enemy) {
+    // 更新攻击冷却时间
+    if (enemy.attackCooldown > 0) {
+        enemy.attackCooldown -= game.deltaTime;
+    }
+    
+    const dx = game.player.x - enemy.x;
+    const dy = game.player.y - enemy.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    // 狂潮模式下增强敌人能力
+    let detectionRange = enemy.detectionRange;
+    let chaseRange = enemy.chaseRange;
+    let speed = enemy.speed;
+    
+    if (game.frenzyMode.active) {
+        detectionRange *= 1.8;  // 探测范围增加80%
+        chaseRange *= 1.8;      // 追击范围增加80%
+        speed *= 1.5;           // 移动速度增加50%
+    }
+    
+    // AI行为
+    if (distance < detectionRange) {
+        // 根据玩家强度决定行为
+        const playerStrength = game.player.level + game.player.radius;
+        const enemyStrength = enemy.radius * (enemy.type === 'red' ? 1.5 : 1);
+        
+        // 狂潮模式下敌人更加激进
+        const fleeThreshold = game.frenzyMode.active ? 4 : 3;
+        
+        if (playerStrength > enemyStrength * fleeThreshold) {
+            enemy.state = 'flee';
+        } else {
+            enemy.state = 'chase';
+        }
+    } else if (distance > chaseRange) {
+        enemy.state = 'idle';
+    }
+    
+    // 根据状态行动
+    if (enemy.state === 'chase') {
+        // 追击玩家
+        const angle = Math.atan2(dy, dx);
+        enemy.dx = Math.cos(angle) * speed;
+        enemy.dy = Math.sin(angle) * speed;
+    } else if (enemy.state === 'flee') {
+        // 逃离玩家
+        const angle = Math.atan2(dy, dx);
+        enemy.dx = -Math.cos(angle) * speed * 0.8;
+        enemy.dy = -Math.sin(angle) * speed * 0.8;
+    } else {
+        // 空闲状态，减速
+        enemy.dx *= 0.95;
+        enemy.dy *= 0.95;
+    }
+    
+    // 应用移动
+    enemy.x += enemy.dx;
+    enemy.y += enemy.dy;
+}
+
+// 更新敌人碰撞
+function updateEnemyCollisions(enemy, index) {
+    // 与玩家碰撞
+    if (checkCollision(enemy, game.player)) {
+        handlePlayerEnemyCollision(enemy);
+    }
+    
+    // 与投射物碰撞
+    for (let j = game.projectiles.length - 1; j >= 0; j--) {
+        const projectile = game.projectiles[j];
+        if (projectile.owner === 'player' && checkCollision(enemy, projectile)) {
+            handleEnemyProjectileCollision(enemy, projectile, j);
+        }
+    }
+}
+
+// 处理玩家与敌人碰撞
+function handlePlayerEnemyCollision(enemy) {
+    // 检查攻击冷却
+    if (enemy.attackCooldown > 0) {
+        return;
+    }
+    
+    // 计算伤害
+    let damage = enemy.damage || 10;
+    
+    // 应用护盾减伤
+    if (game.player.powerups.shield.active) {
+        damage = Math.floor(damage * game.player.powerups.shield.damageReduction);
+    }
+    
+    game.player.health -= damage;
+    game.player.rage += damage * game.player.hitRageMultiplier;
+    game.player.lastHitTime = 60;
+    game.player.hitRageMultiplier = Math.min(3, game.player.hitRageMultiplier + 0.1);
+    
+    // 击退效果
+    const dx = game.player.x - enemy.x;
+    const dy = game.player.y - enemy.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    if (distance > 0) {
+        const knockback = 15;
+        game.player.dx += (dx / distance) * knockback;
+        game.player.dy += (dy / distance) * knockback;
+    }
+    
+    // 设置攻击冷却时间 - 狂潮模式下攻击更频繁
+    const cooldownMultiplier = game.frenzyMode.active ? 0.6 : 1;
+    enemy.attackCooldown = config.enemies.attackCooldown * cooldownMultiplier;
+    
+    // 创建伤害数值显示
+    createDamageNumber(game.player.x, game.player.y, damage);
+}
+
+// 处理敌人与投射物碰撞
+function handleEnemyProjectileCollision(enemy, projectile, projectileIndex) {
+    // 计算伤害
+    let damage = projectile.damage;
+    
+    // 暴击判定
+    const isCritical = Math.random() < game.player.criticalChance;
+    if (isCritical) {
+        damage = Math.floor(damage * game.player.criticalMultiplier);
+        createCriticalDisplay(damage);
+    }
+    
+    enemy.health -= damage;
+    
+    // 创建伤害数值显示
+    createDamageNumber(enemy.x, enemy.y, damage, isCritical);
+    
+    // 移除投射物
+    ObjectPool.recycleProjectile(projectile);
+    game.projectiles.splice(projectileIndex, 1);
+    
+    // 击中粒子效果
+    for (let k = 0; k < 5; k++) {
+        game.particles.push({
+            x: enemy.x,
+            y: enemy.y,
+            dx: randomBetween(-3, 3),
+            dy: randomBetween(-3, 3),
+            radius: randomBetween(1, 3),
+            color: '#FFD700',
+            lifetime: 20
+        });
+    }
+}
+
+// 处理敌人死亡
+function handleEnemyDeath(enemy, index) {
+    // 经验和分数奖励
+    const expGain = Math.floor(enemy.maxHealth / 4) + 5;
+    const scoreGain = Math.floor(enemy.maxHealth / 2) + 10;
+    
+    game.player.exp += expGain;
+    game.score += scoreGain;
+    
+    // 怒气奖励 - 击杀敌人增加怒气
+    const rageGain = 3 * game.player.hitRageMultiplier;
+    game.player.rage = Math.min(game.player.rage + rageGain, game.player.maxRage);
+    
+    // 创建经验数值显示
+    createExperienceNumber(enemy.x, enemy.y, expGain);
+    
+    // 死亡粒子效果
+    for (let j = 0; j < 15; j++) {
+        game.particles.push({
+            x: enemy.x + randomBetween(-enemy.radius, enemy.radius),
+            y: enemy.y + randomBetween(-enemy.radius, enemy.radius),
+            dx: randomBetween(-4, 4),
+            dy: randomBetween(-4, 4),
+            radius: randomBetween(2, 5),
+            color: enemy.type === 'red' ? '#FF4444' : 
+                   enemy.type === 'blue' ? '#4444FF' : 
+                   enemy.type === 'green' ? '#44FF44' : '#FFFFFF',
+            lifetime: 30
+        });
+    }
+    
+    // 移除敌人
+    game.enemies.splice(index, 1);
+}
+
+// 更新投射物
+function updateProjectiles() {
+    for (let i = game.projectiles.length - 1; i >= 0; i--) {
+        const projectile = game.projectiles[i];
+        
+        // 更新位置
+        projectile.x += projectile.dx;
+        projectile.y += projectile.dy;
+        
+        // 更新生命周期
+        projectile.lifetime--;
+        
+        // 移除过期投射物
+        if (projectile.lifetime <= 0) {
+            ObjectPool.recycleProjectile(projectile);
+            game.projectiles.splice(i, 1);
+            continue;
+        }
+        
+        // 距离检查优化
+        const dx = projectile.x - game.player.x;
+        const dy = projectile.y - game.player.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance > 1000) {
+            ObjectPool.recycleProjectile(projectile);
+            game.projectiles.splice(i, 1);
+        }
+    }
+}
+
+// 更新友方球球
+function updateFriendlyBalls() {
+    for (let i = game.friendlyBalls.length - 1; i >= 0; i--) {
+        const friendly = game.friendlyBalls[i];
+        
+        // 跟随玩家逻辑
+        const dx = game.player.x - friendly.x;
+        const dy = game.player.y - friendly.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance > friendly.followDistance) {
+            friendly.dx = (dx / distance) * friendly.speed;
+            friendly.dy = (dy / distance) * friendly.speed;
+        } else {
+            friendly.dx *= 0.9;
+            friendly.dy *= 0.9;
+        }
+        
+        // 攻击最近的敌人
+        let closestEnemy = null;
+        let closestDistance = friendly.attackRange;
+        
+        for (const enemy of game.enemies) {
+            const edx = enemy.x - friendly.x;
+            const edy = enemy.y - friendly.y;
+            const edist = Math.sqrt(edx * edx + edy * edy);
+            
+            if (edist < closestDistance) {
+                closestEnemy = enemy;
+                closestDistance = edist;
+            }
+        }
+        
+        if (closestEnemy && friendly.lastAttackTime <= 0) {
+            const angle = Math.atan2(closestEnemy.y - friendly.y, closestEnemy.x - friendly.x);
+            game.projectiles.push({
+                x: friendly.x,
+                y: friendly.y,
+                dx: Math.cos(angle) * 8,
+                dy: Math.sin(angle) * 8,
+                radius: 6,
+                damage: friendly.damage,
+                owner: 'player',
+                lifetime: 80,
+                active: true
+            });
+            friendly.lastAttackTime = 30;
+        }
+        
+        if (friendly.lastAttackTime > 0) {
+            friendly.lastAttackTime--;
+        }
+        
+        // 更新位置
+        friendly.x += friendly.dx;
+        friendly.y += friendly.dy;
+        
+        // 健康检查
+        if (friendly.health <= 0) {
+            game.friendlyBalls.splice(i, 1);
+        }
+    }
+}
+
+// 更新带刺球球
+function updateSpikedBalls() {
+    for (let i = game.spikedBalls.length - 1; i >= 0; i--) {
+        const spiked = game.spikedBalls[i];
+        
+        // 更新位置和旋转
+        spiked.x += spiked.dx;
+        spiked.y += spiked.dy;
+        spiked.rotationAngle += spiked.rotationSpeed;
+        
+        // 与玩家碰撞检测
+        if (checkCollision(spiked, game.player)) {
+            game.player.health -= spiked.damage;
+            
+            // 创建伤害数值显示
+            createDamageNumber(game.player.x, game.player.y, spiked.damage);
+            
+            // 移除带刺球球
+            game.spikedBalls.splice(i, 1);
+            continue;
+        }
+        
+        // 距离检查
+        const dx = spiked.x - game.player.x;
+        const dy = spiked.y - game.player.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance > 1200) {
+            game.spikedBalls.splice(i, 1);
+        }
+    }
+}
+
+// 更新泡泡道具
+function updateBubblePowerups() {
+    for (let i = game.bubblePowerups.length - 1; i >= 0; i--) {
+        const bubble = game.bubblePowerups[i];
+        
+        // 更新位置和效果
+        bubble.x += bubble.vx;
+        bubble.y += bubble.vy;
+        bubble.glowPhase += 0.1;
+        bubble.lifetime--;
+        
+        // 与玩家碰撞检测
+        if (checkCollision(bubble, game.player)) {
+            applyBubblePowerup(bubble);
+            game.bubblePowerups.splice(i, 1);
+            continue;
+        }
+        
+        // 生命周期检查
+        if (bubble.lifetime <= 0) {
+            game.bubblePowerups.splice(i, 1);
+        }
+    }
+}
+
+// 应用泡泡道具效果
+function applyBubblePowerup(bubble) {
+    const typeConfig = config.bubblePowerup.types[bubble.type];
+    
+    switch(bubble.type) {
+        case 'red':
+            game.player.powerups.red.active = true;
+            game.player.powerups.red.duration = typeConfig.duration;
+            break;
+        case 'blue':
+            game.player.powerups.blue.active = true;
+            game.player.powerups.blue.duration = typeConfig.duration;
+            break;
+        case 'green':
+            game.player.health = Math.min(game.player.maxHealth, 
+                game.player.health + typeConfig.healAmount);
+            break;
+        case 'yellow':
+            game.player.powerups.yellow.active = true;
+            game.player.powerups.yellow.duration = typeConfig.duration;
+            break;
+        case 'purple':
+            game.player.powerups.shield.active = true;
+            game.player.powerups.shield.duration = typeConfig.duration;
+            break;
+    }
+    
+    // 显示获得提示
+    createFloatingText(bubble.x, bubble.y, typeConfig.name, bubble.color, 60, 1.2);
+}
+
+// 更新粒子效果
+function updateParticles() {
+    for (let i = game.particles.length - 1; i >= 0; i--) {
+        const particle = game.particles[i];
+        
+        // 更新位置
+        particle.x += particle.dx;
+        particle.y += particle.dy;
+        
+        // 应用阻力
+        particle.dx *= 0.98;
+        particle.dy *= 0.98;
+        
+        // 更新生命周期
+        particle.lifetime--;
+        
+        // 移除过期粒子
+        if (particle.lifetime <= 0) {
+            game.particles.splice(i, 1);
+        }
+    }
+}
+
+// 更新浮动文本显示
+function updateFloatingTexts() {
+    for (let i = game.floatingTexts.length - 1; i >= 0; i--) {
+        const floatingText = game.floatingTexts[i];
+        
+        // 更新位置
+        floatingText.y += floatingText.dy;
+        floatingText.dy *= 0.98;
+        
+        // 更新透明度
+        floatingText.lifetime--;
+        floatingText.alpha = floatingText.lifetime / 60;
+        
+        // 移除过期的文本
+        if (floatingText.lifetime <= 0) {
+            game.floatingTexts.splice(i, 1);
+        }
+    }
+}
+
+// 创建浮动文本
+function createFloatingText(x, y, text, color, lifetime, scale) {
+    game.floatingTexts.push({
+        x: x,
+        y: y,
+        text: text,
+        color: color || '#FFFFFF',
+        lifetime: lifetime || 60,
+        alpha: 1,
+        dy: -1,
+        scale: scale || 1.0
+    });
+}
+
+// 更新AOE圈圈效果
+function updateAOERings() {
+    for (let i = game.aoeRings.length - 1; i >= 0; i--) {
+        const ring = game.aoeRings[i];
+        
+        // 延迟生成效果
+        if (ring.age > 0) {
+            ring.age--;
+            continue;
+        }
+        
+        // 扩散圈圈
+        ring.radius += ring.speed;
+        ring.lifetime--;
+        
+        // 移除过期的圈圈
+        if (ring.lifetime <= 0 || ring.radius >= ring.maxRadius) {
+            game.aoeRings.splice(i, 1);
+        }
+    }
+}
+
+// 动态生成新的生成点
+function generateNewSpawnPoints() {
+    const minSpawnPoints = 40;
+    const maxSpawnPoints = 100;
+    const generationRadius = 4000;
+    
+    const playerSpeed = Math.sqrt(game.player.dx * game.player.dx + game.player.dy * game.player.dy);
+    const speedBasedMin = Math.max(minSpawnPoints, Math.floor(minSpawnPoints + playerSpeed * 2));
+    
+    if (game.spawnPoints.length < speedBasedMin) {
+        const pointsToGenerate = Math.min(8, maxSpawnPoints - game.spawnPoints.length);
+        
+        for (let i = 0; i < pointsToGenerate; i++) {
+            const densityRoll = Math.random();
+            let distance, minDistance;
+            
+            if (densityRoll < 0.3) {
+                distance = randomBetween(600, 1200);
+                minDistance = 200;
+            } else if (densityRoll < 0.7) {
+                distance = randomBetween(1200, 2000);
+                minDistance = 350;
+            } else {
+                distance = randomBetween(2000, generationRadius);
+                minDistance = 500;
+            }
+            
+            const angle = Math.random() * Math.PI * 2;
+            const x = game.player.x + Math.cos(angle) * distance;
+            const y = game.player.y + Math.sin(angle) * distance;
+            
+            let tooClose = false;
+            for (const existingPoint of game.spawnPoints) {
+                const dx = existingPoint.x - x;
+                const dy = existingPoint.y - y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < minDistance) {
+                    tooClose = true;
+                    break;
+                }
+            }
+            
+            if (!tooClose) {
+                game.spawnPoints.push({
+                    x: x,
+                    y: y,
+                    radius: 30,
+                    isActive: false,
+                    cooldownTimer: 0,
+                    enemiesSpawned: 0,
+                    lastActivationTime: 0,
+                    density: densityRoll < 0.3 ? 'high' : (densityRoll < 0.7 ? 'medium' : 'low')
+                });
+            }
+        }
+    }
+}
+
+// 更新相机位置
+function updateCamera() {
+    const playerSpeed = Math.sqrt(game.player.dx * game.player.dx + game.player.dy * game.player.dy);
+    
+    // 预测性相机偏移
+    const lookAheadFactor = Math.min(playerSpeed * 3, 100);
+    const lookAheadX = game.player.dx > 0 ? lookAheadFactor : (game.player.dx < 0 ? -lookAheadFactor : 0);
+    const lookAheadY = game.player.dy > 0 ? lookAheadFactor * 0.5 : (game.player.dy < 0 ? -lookAheadFactor * 0.5 : 0);
+    
+    game.camera.targetX = game.player.x - game.gameWidth / 2 + lookAheadX;
+    game.camera.targetY = game.player.y - game.gameHeight / 2 + lookAheadY;
+    
+    // 动态调整相机平滑度
+    const dynamicSmoothness = Math.max(config.camera.smoothness, config.camera.smoothness + playerSpeed * 0.01);
+    
+    game.camera.x += (game.camera.targetX - game.camera.x) * dynamicSmoothness;
+    game.camera.y += (game.camera.targetY - game.camera.y) * dynamicSmoothness;
+}
+
+// 生成泡泡道具
+function generateBubblePowerups() {
+    if (Math.random() < config.bubblePowerup.spawnChance) {
+        const angle = Math.random() * Math.PI * 2;
+        const distance = randomBetween(config.bubblePowerup.spawnDistance * 0.5, config.bubblePowerup.spawnDistance);
+        
+        let bubbleType = 'normal';
+        let cumulativeChance = 0;
+        const rand = Math.random();
+        
+        for (const [type, typeConfig] of Object.entries(config.bubblePowerup.types)) {
+            cumulativeChance += typeConfig.chance;
+            if (rand <= cumulativeChance) {
+                bubbleType = type;
+                break;
+            }
+        }
+        
+        const typeConfig = config.bubblePowerup.types[bubbleType];
+        
+        const bubble = {
+            x: game.player.x + Math.cos(angle) * distance,
+            y: game.player.y + Math.sin(angle) * distance,
+            radius: config.bubblePowerup.radius,
+            health: config.bubblePowerup.health,
+            maxHealth: config.bubblePowerup.health,
+            vx: (Math.random() - 0.5) * config.bubblePowerup.floatSpeed,
+            vy: (Math.random() - 0.5) * config.bubblePowerup.floatSpeed,
+            lifetime: config.bubblePowerup.lifetime,
+            maxLifetime: config.bubblePowerup.lifetime,
+            glowPhase: Math.random() * Math.PI * 2,
+            type: bubbleType,
+            color: typeConfig.color,
+            glowColor: typeConfig.glowColor
+        };
+        
+        game.bubblePowerups.push(bubble);
+    }
+}
+
+// 清理远离玩家的地图元素
+function cleanupDistantMapElements() {
+    const cleanupDistance = 4000; // 清理距离
+    const playerX = game.player.x;
+    const playerY = game.player.y;
+    
+    // 清理远离的平台（保留初始平台）
+    game.platforms = game.platforms.filter((platform, index) => {
+        if (index === 0) return true; // 保留初始平台
+        const dx = platform.x + platform.width/2 - playerX;
+        const dy = platform.y - playerY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        return distance < cleanupDistance;
+    });
+    
+    // 清理远离的土地方块
+    game.groundBlocks = game.groundBlocks.filter(block => {
+        const dx = block.x + block.width/2 - playerX;
+        const dy = block.y + block.height/2 - playerY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        return distance < cleanupDistance;
+    });
+    
+    // 清理远离的大陆方块
+    game.mainlandBlocks = game.mainlandBlocks.filter(block => {
+        const dx = block.x + block.width/2 - playerX;
+        const dy = block.y + block.height/2 - playerY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        return distance < cleanupDistance;
+    });
+    
+    // 清理远离的石块
+    game.stoneBlocks = game.stoneBlocks.filter(block => {
+        const dx = block.x + block.width/2 - playerX;
+        const dy = block.y + block.height/2 - playerY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        return distance < cleanupDistance;
+    });
+    
+    // 清理远离的砖块
+    game.brickBlocks = game.brickBlocks.filter(block => {
+        const dx = block.x + block.width/2 - playerX;
+        const dy = block.y + block.height/2 - playerY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        return distance < cleanupDistance;
+    });
+    
+    // 清理远离的云朵
+    game.clouds = game.clouds.filter(cloud => {
+        const dx = cloud.x + cloud.width/2 - playerX;
+        const dy = cloud.y + cloud.height/2 - playerY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        return distance < cleanupDistance;
+    });
+    
+    // 清理远离的弹床
+    game.trampolines = game.trampolines.filter(trampoline => {
+        const dx = trampoline.x + trampoline.width/2 - playerX;
+        const dy = trampoline.y + trampoline.height/2 - playerY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        return distance < cleanupDistance;
+    });
+    
+
+    
+    // 清理远离的生成点
+    game.spawnPoints = game.spawnPoints.filter(spawnPoint => {
+        const dx = spawnPoint.x - playerX;
+        const dy = spawnPoint.y - playerY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        return distance < cleanupDistance * 1.5; // 生成点保留更远距离
+    });
+}
+
+// 动态生成地图元素 - 完全按照原版3.6.3实现
+
+// 动态生成地图元素 - 完全按照原版3.6.3实现
+function generatePlatformBelowPlayer() {
+    // 预测性生成 - 根据玩家移动方向生成内容
+    const playerVelocity = Math.sqrt(game.player.dx * game.player.dx + game.player.dy * game.player.dy);
+    const lookAheadDistance = Math.max(800, playerVelocity * 50); // 根据速度调整预测距离
+    
+    // 检查玩家移动方向的区域
+    const directions = [
+        { x: 0, y: 1, name: 'below' },     // 下方
+        { x: game.player.dx > 0 ? 1 : -1, y: 0, name: 'horizontal' }, // 水平方向
+        { x: game.player.dx > 0 ? 1 : -1, y: 1, name: 'diagonal' }   // 对角线方向
+    ];
+    
+    for (const dir of directions) {
+        const checkX = game.player.x + dir.x * lookAheadDistance;
+        const checkY = game.player.y + dir.y * lookAheadDistance;
+        
+        // 检查该区域是否需要生成平台
+        if (shouldGeneratePlatformInArea(checkX, checkY, dir.name)) {
+            generatePlatformInArea(checkX, checkY, dir.name);
+        }
+    }
+}
+
+// 检查区域是否需要生成平台
+function shouldGeneratePlatformInArea(centerX, centerY, areaType) {
+    const searchRadius = areaType === 'below' ? 400 : 600;
+    let platformCount = 0;
+    
+    for (const platform of game.platforms) {
+        const dx = platform.x + platform.width/2 - centerX;
+        const dy = platform.y - centerY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance < searchRadius) {
+            platformCount++;
+        }
+    }
+    
+    // 根据区域类型决定最小平台数量
+    const minPlatforms = areaType === 'below' ? 1 : 2;
+    return platformCount < minPlatforms;
+}
+
+// 在指定区域生成平台
+function generatePlatformInArea(centerX, centerY, areaType) {
+    const platformsToGenerate = areaType === 'below' ? 1 : randomBetween(2, 4);
+    
+    for (let i = 0; i < platformsToGenerate; i++) {
+        const width = randomBetween(config.platforms.minWidth, config.platforms.maxWidth);
+        const x = centerX - width/2 + randomBetween(-200, 200);
+        const y = centerY + randomBetween(-100, 100);
+        const isGroundBlock = Math.random() < config.platforms.groundBlockChance;
+        const isMainland = Math.random() < config.platforms.mainlandChance;
+        const hasStoneBlock = Math.random() < config.platforms.stoneBlockChance;
+        const hasBrickBlock = Math.random() < config.platforms.brickBlockChance;
+        const hasCloud = Math.random() < config.platforms.cloudChance;
+
+        
+        let newPlatform;
+        
+        // 如果是大陆地区块，调整尺寸
+        if (isMainland) {
+            const mainlandWidth = randomBetween(config.platforms.mainlandMinWidth, config.platforms.mainlandMaxWidth);
+            newPlatform = {
+                x: x,
+                y: y,
+                width: mainlandWidth,
+                height: config.platforms.mainlandHeight,
+                isGroundBlock: false,
+                isMainland: true,
+                hasStoneBlock: hasStoneBlock,
+                hasBrickBlock: hasBrickBlock,
+                hasCloud: hasCloud
+            };
+        } else {
+            newPlatform = {
+                x: x,
+                y: y,
+                width: width,
+                height: config.platforms.height,
+                isGroundBlock: isGroundBlock,
+                isMainland: false,
+                hasStoneBlock: hasStoneBlock,
+                hasBrickBlock: hasBrickBlock,
+                hasCloud: hasCloud
+            };
+        }
+        
+        game.platforms.push(newPlatform);
+        
+        // 如果是土地方块平台，则生成土地方块
+        if (isGroundBlock) {
+            const blockCount = Math.floor(width / 40);
+            for (let i = 0; i < blockCount; i++) {
+                game.groundBlocks.push({
+                    x: x + i * 40,
+                    y: y - 40,
+                    width: 40,
+                    height: 40
+                });
+            }
+        }
+        
+        // 如果是大陆地区块平台，则生成大陆区块
+        if (isMainland) {
+            const blockCount = Math.floor(newPlatform.width / 40);
+            const heightBlocks = Math.floor(newPlatform.height / 40);
+            
+            for (let i = 0; i < blockCount; i++) {
+                for (let j = 0; j < heightBlocks; j++) {
+                    game.mainlandBlocks.push({
+                        x: newPlatform.x + i * 40,
+                        y: newPlatform.y - (j + 1) * 40,
+                        width: 40,
+                        height: 40
+                    });
+                }
+            }
+        }
+        
+        // 如果有石块，生成石块
+        if (hasStoneBlock) {
+            const blockCount = Math.floor(newPlatform.width / 40);
+            const heightBlocks = randomBetween(1, 3);  // 石块高度1-3层
+            
+            for (let i = 0; i < blockCount; i++) {
+                for (let j = 0; j < heightBlocks; j++) {
+                    game.stoneBlocks.push({
+                        x: newPlatform.x + i * 40,
+                        y: newPlatform.y - (j + 1) * 40,
+                        width: 40,
+                        height: 40
+                    });
+                }
+            }
+        }
+        
+        // 如果有砖块，生成砖块
+        if (hasBrickBlock) {
+            const blockCount = Math.floor(newPlatform.width / 40);
+            const heightBlocks = randomBetween(1, 2);  // 砖块高度1-2层
+            
+            for (let i = 0; i < blockCount; i++) {
+                for (let j = 0; j < heightBlocks; j++) {
+                    game.brickBlocks.push({
+                        x: newPlatform.x + i * 40,
+                        y: newPlatform.y - (j + 1) * 40,
+                        width: 40,
+                        height: 40,
+                        health: 2  // 砖块生命值
+                    });
+                }
+            }
+        }
+        
+        // 如果有云朵，生成云朵
+        if (hasCloud) {
+            const cloudWidth = randomBetween(80, 150);
+            const cloudHeight = 30;
+            
+            game.clouds.push({
+                x: x + randomBetween(0, width - cloudWidth),
+                y: y - cloudHeight - 10,
+                width: cloudWidth,
+                height: cloudHeight
+            });
+        }
+        
+
+    }
+}
+
+// 强制怪物密度控制
+function enforceMonsterDensity() {
+    const screenRanges = 9; // 九个屏幕范围
+    const screenSize = Math.max(game.gameWidth, game.gameHeight);
+    const totalRange = screenSize * screenRanges;
+    
+    // 计算范围内的敌人数量
+    const enemiesInRange = game.enemies.filter(enemy => {
+        const dx = enemy.x - game.player.x;
+        const dy = enemy.y - game.player.y;
+        return Math.sqrt(dx * dx + dy * dy) < totalRange;
+    }).length;
+    
+    // 如果敌人数量不足，强制生成
+    const minEnemies = Math.max(5, Math.floor(screenRanges * 2));
+    if (enemiesInRange < minEnemies) {
+        for (let i = 0; i < minEnemies - enemiesInRange; i++) {
+            spawnEnemyNearPlayer();
+        }
+    }
+}
+
+// 更新狂潮模式
+function updateFrenzyMode() {
+    if (game.frenzyMode.active) {
+        game.frenzyMode.duration--;
+        if (game.frenzyMode.duration <= 0) {
+            game.frenzyMode.active = false;
+            game.frenzyMode.cooldown = game.frenzyMode.maxCooldown;
+        }
+    } else if (game.frenzyMode.cooldown > 0) {
+        game.frenzyMode.cooldown--;
+    }
+    
+    // 检查激活条件
+    if (!game.frenzyMode.active && game.frenzyMode.cooldown <= 0) {
+        const nearbyEnemies = game.enemies.filter(enemy => {
+            const dx = enemy.x - game.player.x;
+            const dy = enemy.y - game.player.y;
+            return Math.sqrt(dx * dx + dy * dy) < 500;
+        }).length;
+        
+        if (nearbyEnemies >= 15) {
+            game.frenzyMode.active = true;
+            game.frenzyMode.duration = game.frenzyMode.maxDuration;
+        }
+    }
+}
+
+// 模块导出（支持Node.js环境）
+// 全局函数暴露
+window.update = update;
+window.updatePlayer = updatePlayer;
+window.startDash = startDash;
+window.startVerticalDash = startVerticalDash;
+window.createExplosion = createExplosion;
+window.createDamageNumber = createDamageNumber;
+window.createExperienceNumber = createExperienceNumber;
+window.createFloatingText = createFloatingText;
+window.randomBetween = randomBetween;
+window.activateWindFireWheels = activateWindFireWheels;
+window.updateWindFireWheels = updateWindFireWheels;
+window.activateLaser = activateLaser;
+window.updateLaser = updateLaser;
+window.checkCollisionAtPosition = checkCollisionAtPosition;
+window.checkLevelUp = checkLevelUp;
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        collisionSystem,
+        updateSpawnPoints,
+        spawnEnemyAtPoint,
+        createEnemy,
+        getEnemyBaseSpeed,
+        applyEnemyTypeProperties,
+        update,
+        updateEnemySpawning,
+        spawnEnemyNearPlayer,
+        updateSpikedBallSpawning,
+        updateResourceRecovery,
+        updateSkillCooldowns,
+        updateGameObjects,
+        updateGameObjectsWithInputHandler,
+        updateEnemies,
+        updateEnemyByType,
+        updateProjectiles,
+        updateFriendlyBalls,
+        updateSpikedBalls,
+        updateBubblePowerups,
+        updateParticles,
+        updateFloatingTexts,
+        updateAOERings,
+        handlePlatformCollision,
+        checkCollision,
+        createExplosion,
+        startDash,
+        startVerticalDash,
+        createDamageNumber,
+        createCriticalDisplay,
+        createExperienceNumber,
+        createFloatingText,
+        generateNewSpawnPoints,
+        updateCamera,
+        generateBubblePowerups,
+
+        cleanupDistantMapElements,
+        generatePlatformBelowPlayer,
+        enforceMonsterDensity,
+        updateFrenzyMode,
+        randomBetween,
+        activateWindFireWheels,
+        updateWindFireWheels,
+        activateLaser,
+        updateLaser,
+        checkCollisionAtPosition
+    };
+}

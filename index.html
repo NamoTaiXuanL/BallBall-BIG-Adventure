@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>球球大冒险 3.6.3 - 重构版</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #222;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    
+    <!-- 引入模块文件 -->
+    <script src="utils.js?v=20250902204921"></script>
+    <script src="inputHandler.js?v=20250902204921"></script>
+    <script src="render.js?v=20250902204921"></script>
+    <script src="gameLogic.js?v=20250902204921"></script>
+    
+    <script>
+        // 游戏配置
+        const config = {
+            player: {
+                radius: 20,
+                speed: 6,
+                dashSpeed: 25,  // 冲刺速度(从15增加到25)
+                dashDuration: 25,  // 冲刺持续时间(帧)(从20增加到25)
+                dashCooldown: 30,  // 冲刺冷却时间(帧)(从60减少到30)
+                jumpForce: 25,  // 增加跳跃力度
+                chargeJumpMultiplier: 2.5,  // 增加蓄力跳跃倍数
+                doubleJumpForce: 23,  // 二段跳力度
+                stamina: 100,  // 精力值
+                maxStamina: 100,
+                staminaRecovery: 0.5,  // 精力恢复速度
+                health: 100,
+                mana: 50,
+                maxMana: 50,
+                rage: 0,
+                maxRage: 100,
+                level: 1,
+                exp: 0,
+                expToNextLevel: 100,
+                attackPower: 10,
+                autoAimRadius: 200
+            },
+            colors: {
+                player: '#4CAF50',
+                redEnemy: '#F44336',
+                blueEnemy: '#2196F3',
+                whiteEnemy: '#FFFFFF',
+                blackEnemy: '#000000',
+                largeredEnemy: '#B71C1C',  // 深红色大型球球
+                rotatingEnemy: '#FF5722',  // 橙红色旋转球球
+                teleportEnemy: '#9C27B0',  // 紫色传送球球
+                snakeEnemy: '#8BC34A',  // 绿色蛇形球球
+                yellowEnemy: '#FFEB3B',  // 黄色变大球球
+                controlEnemy: '#673AB7',  // 紫色控制球球
+                eliteEnemy: '#FF1744',  // 精英怪物主体颜色
+                eliteEnemyMain: '#FF1744',  // 精英怪物主体颜色
+                eliteEnemyCore: '#D50000',  // 精英怪物核心颜色
+                eliteEnemyOrb: '#FF5722',  // 精英怪物环绕球颜色
+                chasingEnemy: '#F44336',  // 追击敌人颜色
+                jumpingEnemy: '#FFEB3B',  // 跳跃敌人颜色
+                enemy: '#F44336',  // 默认敌人颜色
+                friendly: '#FFC107',
+                friendlyBall: '#FFC107',
+                projectile: '#9E9E9E',
+                chargeIndicator: 'rgba(255, 255, 255, 0.5)',
+                groundBlock: '#8B4513',
+                cloud: '#FFFFFF',
+                ladder: '#A1887F',
+                spikeBall: '#E91E63',
+                bubblePowerup: '#00BCD4',  // 泡泡道具颜色
+                stoneBlock: '#696969',  // 石块颜色
+                brickBlock: '#CD853F'  // 砖块颜色
+            },
+            gravity: 0.5,
+            friction: 0.85,
+            platforms: {
+                count: 250,  // 增加平台数量
+                minWidth: 250,
+                maxWidth: 600,
+                height: 20,
+                spawnDistance: 1000,
+                groundBlockChance: 0.08,  // 减少普通土块概率
+                mainlandChance: 0.3,  // 大陆地区块生成概率 - 增加到30%
+                mainlandMinWidth: 400,  // 大陆地区块最小宽度
+                mainlandMaxWidth: 800,  // 大陆地区块最大宽度
+                mainlandHeight: 40,  // 大陆地区块高度
+                cloudChance: 0.15,  // 云朵生成概率
+                ladderChance: 0.1,  // 梯子生成概率
+                trampolineBounceForce: 75,  // 弹床弹力（原来的三倍）
+                stoneBlockChance: 0.12,  // 石块生成概率
+                brickBlockChance: 0.15  // 砖块生成概率
+            },
+            enemies: {
+                spawnRate: 0.05,  // 增加生成率
+                maxCount: 50,  // 增加最大敌人数
+                baseRadius: 15,
+                health: 30,
+                attackCooldown: 60,
+                spawnRegionSize: 2000,
+                eliteSpawnChance: 0.02,  // 精英怪物生成概率 2%
+                eliteMinDistance: 800,  // 精英怪物最小生成距离
+                eliteMaxDistance: 1200,  // 精英怪物最大生成距离
+                spikeBall: {
+                    speed: 3,
+                    damage: 20,
+                    health: 50
+                }
+            },
+            friendly: {
+                followDistance: 120,
+                attackRange: 250,
+                followPriority: 0.8,
+                speed: 5
+            },
+            performance: {
+                targetFPS: 120,
+                frameTimeThreshold: 16.67,  // 60fps阈值
+                performanceMode: 'high',  // 'low', 'medium', 'high'
+                adaptiveQuality: true
+            },
+            camera: {
+                smoothness: 0.1,
+                maxOffset: 200
+            },
+            spawnPoints: {
+                count: 50,
+                activationRange: 400,
+                maxEnemiesPerPoint: 4,
+                persistentActivation: true
+            },
+            bubblePowerup: {
+                spawnChance: 0.001,
+                spawnDistance: 800,
+                radius: 25,
+                health: 20,
+                floatSpeed: 2,
+                lifetime: 1800,
+                types: {
+                    red: {
+                        name: '红色泡泡',
+                        color: '#FF4444',
+                        glowColor: '#FF8888',
+                        chance: 0.3,
+                        duration: 300,
+                        effect: 'damage_boost'
+                    },
+                    blue: {
+                        name: '蓝色泡泡',
+                        color: '#4444FF',
+                        glowColor: '#8888FF',
+                        chance: 0.25,
+                        duration: 240,
+                        effect: 'speed_boost'
+                    },
+                    green: {
+                        name: '绿色泡泡',
+                        color: '#44FF44',
+                        glowColor: '#88FF88',
+                        chance: 0.2,
+                        healAmount: 30,
+                        effect: 'heal'
+                    },
+                    yellow: {
+                        name: '黄色泡泡',
+                        color: '#FFFF44',
+                        glowColor: '#FFFF88',
+                        chance: 0.15,
+                        duration: 180,
+                        effect: 'invincible'
+                    },
+                    purple: {
+                        name: '紫色泡泡',
+                        color: '#FF44FF',
+                        glowColor: '#FF88FF',
+                        chance: 0.1,
+                        duration: 360,
+                        damageReduction: 0.5,
+                        effect: 'shield'
+                    }
+                }
+            }
+        };
+
+        // 游戏状态
+        const game = {
+            canvas: null,
+            ctx: null,
+            gameWidth: 0,
+            gameHeight: 0,
+            player: {
+                x: 0,
+                y: -50,  // 修改初始Y坐标，确保在平台上方
+                dx: 0,
+                dy: 0,
+                radius: config.player.radius,
+                health: config.player.health,
+                maxHealth: config.player.health,
+                stamina: config.player.stamina,
+                maxStamina: config.player.maxStamina,
+                mana: config.player.mana,
+                maxMana: config.player.maxMana,
+                rage: config.player.rage,
+                maxRage: config.player.maxRage,
+                level: config.player.level,
+                exp: config.player.exp,
+                experience: config.player.exp,
+                expToNextLevel: config.player.expToNextLevel,
+                experienceToNextLevel: config.player.expToNextLevel,
+                score: 0,
+                attackPower: config.player.attackPower,
+                criticalRate: 0.15,  // 15%暴击率
+                criticalMultiplier: 2.0,  // 暴击伤害倍数
+                autoAimRadius: config.player.autoAimRadius,
+                onGround: false,
+                canDoubleJump: true,
+                // 跳跃相关属性
+                isJumping: false,
+                jumpCount: 0,  // 跳跃计数器
+                maxJumps: 2,   // 最大跳跃次数（包括二段跳）
+                // 冲刺相关
+                isDashing: false,
+                dashTime: 0,
+                dashCooldown: 0,
+                lastKeyPressTime: { 'a': 0, 'd': 0 },  // 按键时间记录
+                // 蓄力跳跃相关
+                isCharging: false,
+                chargeTime: 0,
+                // 按键状态
+                wKeyPressed: false,  // W键按下状态，防止二段跳连续触发
+                // 攻击相关
+                lastAttackTime: 0,
+                attackCooldown: 15,
+                aoeAttackCooldown: 0,
+                // 按键时间记录
+                lastKeyPressTime: {
+                    'a': 0,
+                    'd': 0,
+                    'w': 0,
+                    's': 0
+                },
+                // 其他状态
+                lastHitTime: 0,
+                hitRageMultiplier: 1.0,  // 怒气倍率
+                inBubble: false,
+                bubbleHealth: 0,
+                maxBubbleHealth: 0,
+                // 道具效果
+                powerups: {
+                    golden: {
+                        active: false,
+                        duration: 0
+                    },
+                    blue: {
+                        active: false,
+                        duration: 0,
+                        multiplier: 2
+                    },
+                    red: {
+                        active: false,
+                        duration: 0,
+                        damageMultiplier: 3,
+                        knockbackMultiplier: 2
+                    },
+                    shield: {
+                        active: false,
+                        duration: 0,
+                        damageReduction: 0.5
+                    }
+                },
+                // 风火轮技能属性
+                windFireWheels: {
+                    active: false,
+                    orbs: [],
+                    rotationAngle: 0,
+                    orbRadius: 100,
+                    orbSize: 15,
+                    rotationSpeed: 0.1,
+                    damage: 30,
+                    rageCost: 15,
+                    maxDuration: 300,
+                    duration: 0,
+                    cooldown: 600,
+                    cooldownTimer: 0,
+                    radius: 80,
+                    rotation: 0
+                },
+                // 激光技能属性
+                laser: {
+                    active: false,
+                    startX: 0,
+                    startY: 0,
+                    endX: 0,
+                    endY: 0,
+                    damage: 30,
+                    percentDamage: 0.05,
+                    manaCost: 1.2,
+                    minMana: 15,
+                    range: 800,
+                    width: 8,
+                    damageInterval: 8,
+                    lastDamageTime: 0,
+                    cooldown: 300,
+                    cooldownTimer: 0
+                },
+                // 闪现技能属性
+                dash: {
+                    distance: 200,
+                    cooldown: 180,
+                    lastUsed: 0
+                }
+            },
+            camera: {
+                x: 0,
+                y: 0,
+                targetX: 0,
+                targetY: 0
+            },
+            keys: {},
+            mouse: {
+                x: 0,
+                y: 0,
+                left: false,
+                right: false
+            },
+            enemies: [],
+            friendlyBalls: [],
+            spikedBalls: [],
+            bubblePowerups: [],
+            projectiles: [],
+            particles: [],
+            platforms: [],
+            groundBlocks: [],
+            mainlandBlocks: [],
+            stoneBlocks: [],
+            brickBlocks: [],
+            trampolines: [],
+            ladders: [],
+            spawnPoints: [],
+            floatingTexts: [],
+            aoeRings: [],
+            damageNumbers: [],
+            criticalDisplays: [],
+            experienceNumbers: [],
+            score: 0,
+            frameCount: 0,
+            lastTime: 0,
+            deltaTime: 0,
+            performanceMode: config.performance.performanceMode,
+            showFPS: true,
+            fps: 0,
+            currentFPS: 0,
+            frenzyMode: {
+                active: false,
+                duration: 0,
+                maxDuration: 600,
+                cooldown: 0,
+                maxCooldown: 1200
+            },
+            attackCooldown: 0,
+            aoeCooldown: 0,
+            laserCooldown: 0,
+            isChargingJump: false,
+            chargeJumpTimer: 0
+        };
+
+        // 初始化游戏
+        function init() {
+            game.canvas = document.getElementById('gameCanvas');
+            game.ctx = game.canvas.getContext('2d');
+            
+            // 设置画布大小
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            
+            // 初始化输入处理
+            initInputHandlers(game, config);
+            
+            // 生成初始平台和所有地图元素
+            generateInitialPlatforms();
+            
+            // 初始化时间
+            game.lastTime = performance.now();
+            
+            // 开始游戏循环
+            requestAnimationFrame(gameLoop);
+        }
+
+        // 调整画布大小
+        function resizeCanvas() {
+            game.gameWidth = window.innerWidth;
+            game.gameHeight = window.innerHeight;
+            game.canvas.width = game.gameWidth;
+            game.canvas.height = game.gameHeight;
+        }
+
+        // 生成随机平台
+        function generatePlatforms() {
+            game.platforms = [];
+            
+            // 确保玩家初始位置有平台
+            game.platforms.push({
+                x: -200,
+                y: 100,
+                width: 400,
+                height: config.platforms.height,
+                isGroundBlock: false,
+                hasCloud: false
+            });
+            
+            // 生成其他平台 - 数量增加且范围更大
+            for (let i = 0; i < config.platforms.count; i++) {
+                const width = randomBetween(config.platforms.minWidth, config.platforms.maxWidth);
+                const x = randomBetween(-8000, 8000);  // 进一步扩大生成范围
+                const y = randomBetween(-8000, 8000);
+                const isGroundBlock = Math.random() < config.platforms.groundBlockChance;
+                const isMainland = Math.random() < config.platforms.mainlandChance;
+                const hasStoneBlock = Math.random() < config.platforms.stoneBlockChance;
+                const hasBrickBlock = Math.random() < config.platforms.brickBlockChance;
+                const hasCloud = Math.random() < config.platforms.cloudChance;
+                const hasLadder = Math.random() < config.platforms.ladderChance;
+                
+                // 如果是大陆地区块，调整尺寸
+                if (isMainland) {
+                    const mainlandWidth = randomBetween(config.platforms.mainlandMinWidth, config.platforms.mainlandMaxWidth);
+                    game.platforms.push({
+                        x: x,
+                        y: y,
+                        width: mainlandWidth,
+                        height: config.platforms.mainlandHeight,
+                        isGroundBlock: false,
+                        isMainland: true,
+                        hasStoneBlock: hasStoneBlock,
+                        hasBrickBlock: hasBrickBlock,
+                        hasCloud: hasCloud,
+                        hasLadder: hasLadder
+                    });
+                } else {
+                    game.platforms.push({
+                        x: x,
+                        y: y,
+                        width: width,
+                        height: config.platforms.height,
+                        isGroundBlock: isGroundBlock,
+                        isMainland: false,
+                        hasStoneBlock: hasStoneBlock,
+                        hasBrickBlock: hasBrickBlock,
+                        hasCloud: hasCloud,
+                        hasLadder: hasLadder
+                    });
+                }
+            }
+        }
+
+        // 生成土地方块
+        function generateGroundBlocks() {
+            game.groundBlocks = [];
+            
+            // 在平台附近生成土地方块
+            for (const platform of game.platforms) {
+                if (platform.isGroundBlock) {
+                    const blockCount = Math.floor(platform.width / 40);
+                    for (let i = 0; i < blockCount; i++) {
+                        game.groundBlocks.push({
+                            x: platform.x + i * 40,
+                            y: platform.y - 40,
+                            width: 40,
+                            height: 40
+                        });
+                    }
+                }
+            }
+        }
+        
+        // 生成大陆地区块
+        function generateMainlandBlocks() {
+            game.mainlandBlocks = [];
+            
+            // 为大陆平台生成厚实的地区块
+            for (const platform of game.platforms) {
+                if (platform.isMainland) {
+                    const blockCount = Math.floor(platform.width / 40);
+                    const heightBlocks = Math.floor(platform.height / 40);
+                    
+                    for (let i = 0; i < blockCount; i++) {
+                        for (let j = 0; j < heightBlocks; j++) {
+                            game.mainlandBlocks.push({
+                                x: platform.x + i * 40,
+                                y: platform.y - (j + 1) * 40,
+                                width: 40,
+                                height: 40
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 生成石块
+        function generateStoneBlocks() {
+            game.stoneBlocks = [];
+            
+            // 在平台附近生成石块
+            for (const platform of game.platforms) {
+                if (platform.hasStoneBlock) {
+                    const blockCount = Math.floor(platform.width / 40);
+                    const heightBlocks = randomBetween(1, 3);  // 石块高度1-3层
+                    
+                    for (let i = 0; i < blockCount; i++) {
+                        for (let j = 0; j < heightBlocks; j++) {
+                            game.stoneBlocks.push({
+                                x: platform.x + i * 40,
+                                y: platform.y - (j + 1) * 40,
+                                width: 40,
+                                height: 40
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 生成砖块
+        function generateBrickBlocks() {
+            game.brickBlocks = [];
+            
+            // 在平台附近生成砖块
+            for (const platform of game.platforms) {
+                if (platform.hasBrickBlock) {
+                    const blockCount = Math.floor(platform.width / 40);
+                    const heightBlocks = randomBetween(1, 2);  // 砖块高度1-2层
+                    
+                    for (let i = 0; i < blockCount; i++) {
+                        for (let j = 0; j < heightBlocks; j++) {
+                            game.brickBlocks.push({
+                                x: platform.x + i * 40,
+                                y: platform.y - (j + 1) * 40,
+                                width: 40,
+                                height: 40
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 生成弹床
+        function generateTrampolines() {
+            game.trampolines = [];
+            
+            // 在部分平台上生成弹床
+            for (const platform of game.platforms) {
+                if (Math.random() < 0.1) {  // 10%概率生成弹床
+                    game.trampolines.push({
+                        x: platform.x + randomBetween(50, platform.width - 110),
+                        y: platform.y - 15,
+                        width: 60,
+                        height: 15,
+                        bounceForce: config.platforms.trampolineBounceForce
+                    });
+                }
+            }
+        }
+        
+        // 生成梯子
+        function generateLadders() {
+            game.ladders = [];
+            
+            for (const platform of game.platforms) {
+                if (platform.hasLadder) {
+                    // 查找上方的平台
+                    let upperPlatform = null;
+                    for (const other of game.platforms) {
+                        if (other !== platform && 
+                            Math.abs(other.x - platform.x) < 50 && 
+                            other.y < platform.y - 100) {
+                            upperPlatform = other;
+                            break;
+                        }
+                    }
+                    
+                    if (upperPlatform) {
+                        const ladderWidth = 20;
+                        const ladderHeight = platform.y - upperPlatform.y - platform.height;
+                        
+                        game.ladders.push({
+                            x: platform.x + platform.width/2 - ladderWidth/2,
+                            y: upperPlatform.y + upperPlatform.height,
+                            width: ladderWidth,
+                            height: ladderHeight
+                        });
+                    }
+                }
+            }
+        }
+        
+        // 生成敌人
+        function spawnEnemy() {
+            if (game.enemies.length >= config.enemies.maxCount) return;
+            
+            const types = ['red', 'blue', 'white', 'black', 'largered', 'rotating', 'teleport', 'snake', 'yellow', 'control'];
+            const type = types[Math.floor(Math.random() * types.length)];
+            
+            // 在玩家周围一定范围内生成敌人
+            const angle = Math.random() * Math.PI * 2;
+            const distance = 300 + Math.random() * config.enemies.spawnRegionSize;
+            const x = game.player.x + Math.cos(angle) * distance;
+            const y = game.player.y + Math.sin(angle) * distance;
+            
+            createEnemy(x, y, type);
+        }
+        
+        // 创建敌人
+        function createEnemy(x, y, type) {
+            // 随机体积变化 (0.7-2.5倍，有5%概率出现超大个体)
+            const sizeMultiplier = Math.random() < 0.05 ? 
+                (1.8 + Math.random() * 0.7) : // 超大个体: 1.8-2.5倍
+                (0.7 + Math.random() * 0.8);  // 普通个体: 0.7-1.5倍
+            
+            // 随机速度变化 (0.6-2.0倍，有8%概率出现高速个体)
+            const speedMultiplier = Math.random() < 0.08 ? 
+                (1.5 + Math.random() * 0.5) : // 高速个体: 1.5-2.0倍
+                (0.6 + Math.random() * 0.7);  // 普通个体: 0.6-1.3倍
+            
+            const baseSpeed = type === 'black' ? 2.5 : type === 'white' ? 4.5 : 3.5;
+            
+            const enemy = {
+                x: x,
+                y: y,
+                dx: 0,
+                dy: 0,
+                type: type,
+                radius: config.enemies.baseRadius * sizeMultiplier,
+                health: config.enemies.health,
+                maxHealth: config.enemies.health,
+                attackCooldown: 0,
+                lastAttackTime: 0,
+                targetX: 0,
+                targetY: 0,
+                state: 'idle',
+                detectionRange: 350,
+                chaseRange: 1000,
+                speed: baseSpeed * speedMultiplier,
+                sizeMultiplier: sizeMultiplier,
+                speedMultiplier: speedMultiplier
+            };
+            
+            // 不同类型敌人有不同属性
+            switch (type) {
+                case 'red':
+                    enemy.radius *= 1.2;
+                    enemy.health *= 1.5;
+                    enemy.maxHealth = enemy.health;
+                    enemy.speed *= 1.1;
+                    break;
+                case 'blue':
+                    enemy.radius *= 0.9;
+                    break;
+                case 'white':
+                    enemy.radius *= 0.8;
+                    enemy.health *= 0.8;
+                    enemy.maxHealth = enemy.health;
+                    break;
+                case 'black':
+                    enemy.radius *= 1.5;
+                    enemy.health *= 2;
+                    enemy.maxHealth = enemy.health;
+                    break;
+                case 'largered':
+                    enemy.radius *= 2.5;
+                    enemy.health *= 4;
+                    enemy.maxHealth = enemy.health;
+                    enemy.speed *= 0.8;
+                    enemy.moveDirection = 1;
+                    enemy.scatterCooldown = 0;
+                    enemy.scatterInterval = 120;
+                    break;
+                case 'rotating':
+                    enemy.radius *= 1.3;
+                    enemy.health *= 3;
+                    enemy.maxHealth = enemy.health;
+                    enemy.speed *= 1.2;
+                    enemy.rotationAngle = 0;
+                    enemy.rotationSpeed = 0.05;
+                    enemy.orbitRadius = 60;
+                    enemy.companion = {
+                        x: x + enemy.orbitRadius,
+                        y: y,
+                        radius: enemy.radius * 0.8
+                    };
+                    break;
+                case 'teleport':
+                    enemy.radius *= 1.1;
+                    enemy.health *= 2.5;
+                    enemy.maxHealth = enemy.health;
+                    enemy.speed *= 1.3;
+                    enemy.teleportCooldown = 0;
+                    enemy.teleportInterval = 180;
+                    enemy.teleportRange = 400;
+                    enemy.isCharging = false;
+                    enemy.chargeTime = 0;
+                    enemy.maxChargeTime = 60;
+                    break;
+                case 'snake':
+                    enemy.radius *= 0.9;
+                    enemy.health *= 2.5;
+                    enemy.maxHealth = enemy.health;
+                    enemy.speed *= 0.7;
+                    enemy.segments = [];
+                    enemy.segmentCount = 4 + Math.floor(Math.random() * 3);
+                    enemy.segmentDistance = enemy.radius * 2.5;
+                    break;
+                case 'yellow':
+                    enemy.radius *= 1.0;
+                    enemy.health *= 2.0;
+                    enemy.maxHealth = enemy.health;
+                    enemy.speed *= 0.9;
+                    enemy.baseRadius = enemy.radius;
+                    enemy.baseSpeed = enemy.speed;
+                    enemy.baseDamage = 6;
+                    enemy.damage = enemy.baseDamage;
+                    enemy.minRadius = enemy.radius * 0.5;
+                    enemy.maxRadius = enemy.radius * 2.5;
+                    enemy.sizeChangeSpeed = 0.02;
+                    enemy.isGrowing = true;
+                    enemy.sizePhase = 0;
+                    break;
+                case 'control':
+                    enemy.radius *= 1.1;
+                    enemy.health *= 2.0;
+                    enemy.maxHealth = enemy.health;
+                    enemy.speed *= 0.8;
+                    enemy.controlRingRadius = 120;
+                    enemy.controlRingMaxRadius = 150;
+                    enemy.controlRingMinRadius = 80;
+                    enemy.controlRingPulse = 0;
+                    enemy.controlRingPulseSpeed = 0.05;
+                    enemy.slowEffect = 0.3;
+                    enemy.controlCooldown = 0;
+                    enemy.controlInterval = 180;
+                    break;
+            }
+            
+            game.enemies.push(enemy);
+        }
+        
+        // 生成云朵
+        function generateClouds() {
+            game.clouds = [];
+            
+            for (const platform of game.platforms) {
+                if (platform.hasCloud) {
+                    const cloudWidth = randomBetween(80, 150);
+                    const cloudHeight = 30;
+                    
+                    game.clouds.push({
+                        x: platform.x + randomBetween(0, platform.width - cloudWidth),
+                        y: platform.y - cloudHeight,
+                        width: cloudWidth,
+                        height: cloudHeight
+                    });
+                }
+            }
+        }
+        
+        // 生成初始平台和所有地图元素
+        function generateInitialPlatforms() {
+            generatePlatforms();
+            generateGroundBlocks();
+            generateMainlandBlocks();
+            generateStoneBlocks();
+            generateBrickBlocks();
+            generateClouds();
+            generateLadders();
+            generateTrampolines();
+        }
+
+        // 游戏主循环
+        function gameLoop(timestamp) {
+            // 初始化时间戳
+            if (!timestamp) timestamp = performance.now();
+            if (!game.lastTime) game.lastTime = timestamp;
+            
+            // 计算实际帧时间，标准化到60fps
+            const actualDeltaTime = timestamp - game.lastTime;
+            game.deltaTime = actualDeltaTime / 16.67; // 标准化到60fps基准
+            game.lastTime = timestamp;
+            game.frameCount++;
+            
+            // 帧率统计（每60帧计算一次）
+            if (game.frameCount % 60 === 0) {
+                game.currentFPS = Math.round(1000 / actualDeltaTime);
+                game.fps = game.currentFPS;
+            }
+            
+            // 更新游戏逻辑
+            update();
+            
+            // 渲染游戏
+            render(game, config);
+            
+            requestAnimationFrame(gameLoop);
+        }
+
+        // 启动游戏
+        window.addEventListener('load', init);
+    </script>
+</body>
+</html>
