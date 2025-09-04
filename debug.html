@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>调试统计数据</title>
+</head>
+<body>
+    <h1>怪物统计调试</h1>
+    <div id="debug-info"></div>
+    
+    <script>
+        // 等待页面加载完成
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                const debugDiv = document.getElementById('debug-info');
+                
+                // 检查monsterStats是否存在
+                if (typeof window.monsterStats !== 'undefined') {
+                    debugDiv.innerHTML = '<h2>monsterStats对象存在</h2>' + 
+                        '<pre>' + JSON.stringify(window.monsterStats, null, 2) + '</pre>';
+                } else {
+                    debugDiv.innerHTML = '<h2>monsterStats对象不存在</h2>';
+                }
+                
+                // 检查update函数是否存在
+                if (typeof window.update !== 'undefined') {
+                    debugDiv.innerHTML += '<h2>update函数存在</h2>';
+                } else {
+                    debugDiv.innerHTML += '<h2>update函数不存在</h2>';
+                }
+                
+                // 检查createEnemy函数是否存在
+                if (typeof window.createEnemy !== 'undefined') {
+                    debugDiv.innerHTML += '<h2>createEnemy函数存在</h2>';
+                } else {
+                    debugDiv.innerHTML += '<h2>createEnemy函数不存在</h2>';
+                }
+            }, 1000);
+        });
+    </script>
+    
+    <!-- 引入gameLogic.js -->
+    <script src="gameLogic.js?v=20250104214000"></script>
+</body>
+</html>

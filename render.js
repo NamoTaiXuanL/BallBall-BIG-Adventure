@@ -551,15 +551,68 @@ function renderEnemies(ctx, viewLeft, viewRight, viewTop, viewBottom) {
                 continue; // 跳过无效的精英怪物
             }
             
+            // 根据精英怪物子类型设置颜色主题
+            let themeColors = {
+                field: { r: 255, g: 0, b: 100 },    // 默认粉红色
+                main: '#FF1744',
+                core: '#D50000',
+                orb: '#FF5722',
+                border: '#8B0000',
+                glow: { r: 255, g: 255, b: 0 }
+            };
+            
+            switch(enemy.eliteType) {
+                case 'graviton': // 引力型 - 紫色主题
+                    themeColors = {
+                        field: { r: 138, g: 43, b: 226 },
+                        main: '#8A2BE2',
+                        core: '#4B0082',
+                        orb: '#9370DB',
+                        border: '#2E0854',
+                        glow: { r: 186, g: 85, b: 211 }
+                    };
+                    break;
+                case 'destroyer': // 破坏型 - 深红色主题
+                    themeColors = {
+                        field: { r: 220, g: 20, b: 60 },
+                        main: '#DC143C',
+                        core: '#8B0000',
+                        orb: '#FF4500',
+                        border: '#4A0000',
+                        glow: { r: 255, g: 69, b: 0 }
+                    };
+                    break;
+                case 'guardian': // 守护型 - 蓝色主题
+                    themeColors = {
+                        field: { r: 30, g: 144, b: 255 },
+                        main: '#1E90FF',
+                        core: '#0000CD',
+                        orb: '#4169E1',
+                        border: '#000080',
+                        glow: { r: 135, g: 206, b: 250 }
+                    };
+                    break;
+                case 'vortex': // 漩涡型 - 绿色主题
+                    themeColors = {
+                        field: { r: 50, g: 205, b: 50 },
+                        main: '#32CD32',
+                        core: '#228B22',
+                        orb: '#7CFC00',
+                        border: '#006400',
+                        glow: { r: 124, g: 252, b: 0 }
+                    };
+                    break;
+            }
+            
             // 引力场效果
             const gravityAlpha = 0.1 + Math.sin(performance.now() * 0.005) * 0.05;
             const gravityGradient = ctx.createRadialGradient(
                 enemy.x, enemy.y, 0,
                 enemy.x, enemy.y, enemy.gravityFieldRadius
             );
-            gravityGradient.addColorStop(0, `rgba(255, 0, 100, ${gravityAlpha * 2})`);
-            gravityGradient.addColorStop(0.5, `rgba(255, 0, 100, ${gravityAlpha})`);
-            gravityGradient.addColorStop(1, 'rgba(255, 0, 100, 0)');
+            gravityGradient.addColorStop(0, `rgba(${themeColors.field.r}, ${themeColors.field.g}, ${themeColors.field.b}, ${gravityAlpha * 2})`);
+            gravityGradient.addColorStop(0.5, `rgba(${themeColors.field.r}, ${themeColors.field.g}, ${themeColors.field.b}, ${gravityAlpha})`);
+            gravityGradient.addColorStop(1, `rgba(${themeColors.field.r}, ${themeColors.field.g}, ${themeColors.field.b}, 0)`);
             
             ctx.fillStyle = gravityGradient;
             ctx.beginPath();
@@ -567,7 +620,7 @@ function renderEnemies(ctx, viewLeft, viewRight, viewTop, viewBottom) {
             ctx.fill();
             
             // 引力场边界
-            ctx.strokeStyle = 'rgba(255, 0, 100, 0.3)';
+            ctx.strokeStyle = `rgba(${themeColors.field.r}, ${themeColors.field.g}, ${themeColors.field.b}, 0.3)`;
             ctx.lineWidth = 2;
             ctx.setLineDash([5, 5]);
             ctx.beginPath();
@@ -576,20 +629,20 @@ function renderEnemies(ctx, viewLeft, viewRight, viewTop, viewBottom) {
             ctx.setLineDash([]);
             
             // 绘制主体球
-            ctx.fillStyle = config.colors.eliteEnemyMain;
+            ctx.fillStyle = themeColors.main;
             ctx.beginPath();
             ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
             ctx.fill();
             
             // 主体边框
-            ctx.strokeStyle = '#8B0000';
+            ctx.strokeStyle = themeColors.border;
             ctx.lineWidth = 4;
             ctx.stroke();
             
             // 绘制核心
             const coreRadius = enemy.radius * 0.4;
             const corePulse = Math.sin(performance.now() * 0.01) * 0.2 + 0.8;
-            ctx.fillStyle = config.colors.eliteEnemyCore;
+            ctx.fillStyle = themeColors.core;
             ctx.beginPath();
             ctx.arc(enemy.x, enemy.y, coreRadius * corePulse, 0, Math.PI * 2);
             ctx.fill();
@@ -601,8 +654,8 @@ function renderEnemies(ctx, viewLeft, viewRight, viewTop, viewBottom) {
                     enemy.x, enemy.y, 0,
                     enemy.x, enemy.y, coreGlowRadius
                 );
-                coreGlow.addColorStop(0, 'rgba(255, 255, 0, 0.8)');
-                coreGlow.addColorStop(1, 'rgba(255, 255, 0, 0)');
+                coreGlow.addColorStop(0, `rgba(${themeColors.glow.r}, ${themeColors.glow.g}, ${themeColors.glow.b}, 0.8)`);
+                coreGlow.addColorStop(1, `rgba(${themeColors.glow.r}, ${themeColors.glow.g}, ${themeColors.glow.b}, 0)`);
                 
                 ctx.fillStyle = coreGlow;
                 ctx.beginPath();
@@ -617,18 +670,18 @@ function renderEnemies(ctx, viewLeft, viewRight, viewTop, viewBottom) {
                     const orbY = enemy.y + Math.sin(orb.angle) * orb.orbitDistance;
                     
                     // 环绕球主体
-                    ctx.fillStyle = config.colors.eliteEnemyOrb;
+                    ctx.fillStyle = themeColors.orb;
                     ctx.beginPath();
                     ctx.arc(orbX, orbY, orb.radius, 0, Math.PI * 2);
                     ctx.fill();
                     
                     // 环绕球边框
-                    ctx.strokeStyle = '#4A0E4E';
+                    ctx.strokeStyle = themeColors.border;
                     ctx.lineWidth = 2;
                     ctx.stroke();
                     
                     // 连接线
-                    ctx.strokeStyle = 'rgba(255, 0, 100, 0.5)';
+                    ctx.strokeStyle = `rgba(${themeColors.field.r}, ${themeColors.field.g}, ${themeColors.field.b}, 0.5)`;
                     ctx.lineWidth = 2;
                     ctx.beginPath();
                     ctx.moveTo(enemy.x, enemy.y);
@@ -644,9 +697,66 @@ function renderEnemies(ctx, viewLeft, viewRight, viewTop, viewBottom) {
                 }
             }
             
+            // 特殊视觉效果 - 根据子类型添加独特效果
+            switch(enemy.eliteType) {
+                case 'graviton': // 引力型 - 脉动引力波
+                    const gravityWave = Math.sin(performance.now() * 0.006) * 0.4 + 0.6;
+                    for (let i = 1; i <= 3; i++) {
+                        ctx.strokeStyle = `rgba(138, 43, 226, ${gravityWave / i})`;
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.arc(enemy.x, enemy.y, enemy.radius + 15 * i, 0, Math.PI * 2);
+                        ctx.stroke();
+                    }
+                    break;
+                case 'destroyer': // 破坏型 - 火焰效果
+                    const flameIntensity = Math.sin(performance.now() * 0.01) * 0.3 + 0.7;
+                    ctx.strokeStyle = `rgba(255, 69, 0, ${flameIntensity})`;
+                    ctx.lineWidth = 4;
+                    ctx.beginPath();
+                    ctx.arc(enemy.x, enemy.y, enemy.radius + 8, 0, Math.PI * 2);
+                    ctx.stroke();
+                    // 内层火焰
+                    ctx.strokeStyle = `rgba(255, 140, 0, ${flameIntensity * 0.8})`;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(enemy.x, enemy.y, enemy.radius + 12, 0, Math.PI * 2);
+                    ctx.stroke();
+                    break;
+                case 'guardian': // 守护型 - 护盾效果
+                    const shieldPulse = Math.sin(performance.now() * 0.004) * 0.2 + 0.8;
+                    ctx.strokeStyle = `rgba(30, 144, 255, ${shieldPulse})`;
+                    ctx.lineWidth = 5;
+                    ctx.setLineDash([10, 5]);
+                    ctx.beginPath();
+                    ctx.arc(enemy.x, enemy.y, enemy.radius + 15, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    break;
+                case 'vortex': // 漩涡型 - 旋转能量
+                    const vortexRotation = performance.now() * 0.005;
+                    for (let i = 0; i < 8; i++) {
+                        const angle = (i / 8) * Math.PI * 2 + vortexRotation;
+                        const startRadius = enemy.radius + 10;
+                        const endRadius = enemy.radius + 25;
+                        const startX = enemy.x + Math.cos(angle) * startRadius;
+                        const startY = enemy.y + Math.sin(angle) * startRadius;
+                        const endX = enemy.x + Math.cos(angle) * endRadius;
+                        const endY = enemy.y + Math.sin(angle) * endRadius;
+                        
+                        ctx.strokeStyle = `rgba(124, 252, 0, ${0.6 - (i * 0.05)})`;
+                        ctx.lineWidth = 3;
+                        ctx.beginPath();
+                        ctx.moveTo(startX, startY);
+                        ctx.lineTo(endX, endY);
+                        ctx.stroke();
+                    }
+                    break;
+            }
+            
             // 能量波动效果
             const energyWave = Math.sin(performance.now() * 0.008) * 0.3 + 0.7;
-            ctx.strokeStyle = `rgba(255, 215, 0, ${energyWave})`;
+            ctx.strokeStyle = `rgba(${themeColors.glow.r}, ${themeColors.glow.g}, ${themeColors.glow.b}, ${energyWave})`;
             ctx.lineWidth = 3;
             ctx.beginPath();
             ctx.arc(enemy.x, enemy.y, enemy.radius + 10, 0, Math.PI * 2);
@@ -1074,6 +1184,98 @@ function drawUI() {
     ctx.fillText(`投射物: ${game.projectiles.length}`, 10, 245);
     ctx.fillText(`粒子: ${game.particles.length}`, 10, 265);
     
+    // 怪物统计面板 - v3.8.0 (调试版本)
+    // 面板背景
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(game.gameWidth - 320, 10, 310, 280);
+    ctx.strokeStyle = '#FFF';
+    ctx.strokeRect(game.gameWidth - 320, 10, 310, 280);
+    
+    // 调试信息：检查monsterStats对象
+    const statsExists = typeof window.monsterStats !== 'undefined';
+    const updateExists = typeof window.update !== 'undefined';
+    
+    // 标题
+    ctx.fillStyle = '#FFD700';
+    ctx.font = '16px Arial';
+    ctx.textAlign = 'left';
+    ctx.fillText(`怪物统计面板 (调试: ${statsExists ? '✓' : '✗'})`, game.gameWidth - 315, 30);
+    
+    if (window.monsterStats) {
+        const stats = window.monsterStats;
+        
+        // 总计统计
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = '14px Arial';
+        ctx.fillText(`总生成: ${stats.totalSpawned}`, game.gameWidth - 315, 50);
+        ctx.fillText(`总击杀: ${stats.totalKilled}`, game.gameWidth - 315, 70);
+        
+        // 精英怪物调试信息
+        ctx.fillStyle = '#FF6B6B';
+        ctx.fillText('精英怪物调试:', game.gameWidth - 315, 95);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(`尝试生成: ${stats.eliteSpawnAttempts}`, game.gameWidth - 315, 115);
+        ctx.fillText(`成功生成: ${stats.eliteSpawnSuccess}`, game.gameWidth - 315, 135);
+        ctx.fillText(`距离限制失败: ${stats.eliteSpawnFailReasons.distance}`, game.gameWidth - 315, 155);
+        ctx.fillText(`随机概率失败: ${stats.eliteSpawnFailReasons.random}`, game.gameWidth - 315, 175);
+        
+        // 按类型统计 - 分两列显示
+        ctx.fillStyle = '#87CEEB';
+        ctx.fillText('类型统计 (生成/击杀):', game.gameWidth - 315, 195);
+        
+        const types = Object.keys(stats.spawnedByType);
+        // 过滤掉elite，因为我们要单独显示精英怪物子类型
+        const filteredTypes = types.filter(type => type !== 'elite');
+        const leftColumn = filteredTypes.slice(0, 6);
+        const rightColumn = filteredTypes.slice(6);
+        
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = '12px Arial';
+        
+        // 左列
+        leftColumn.forEach((type, index) => {
+            const spawned = stats.spawnedByType[type];
+            const killed = stats.killedByType[type];
+            const y = 215 + index * 15;
+            ctx.fillText(`${type}: ${spawned}/${killed}`, game.gameWidth - 315, y);
+        });
+        
+        // 右列
+        rightColumn.forEach((type, index) => {
+            const spawned = stats.spawnedByType[type];
+            const killed = stats.killedByType[type];
+            const y = 215 + index * 15;
+            ctx.fillText(`${type}: ${spawned}/${killed}`, game.gameWidth - 160, y);
+        });
+        
+        // 精英怪物子类型统计
+        ctx.fillStyle = '#FFD700';
+        ctx.font = '12px Arial';
+        const eliteTypes = ['graviton', 'destroyer', 'guardian', 'vortex'];
+        let eliteY = 305;
+        ctx.fillText('精英怪物类型:', game.gameWidth - 315, eliteY);
+        eliteY += 15;
+        
+        eliteTypes.forEach((eliteType, index) => {
+            const spawned = stats.spawnedByType[eliteType] || 0;
+            const killed = stats.killedByType[eliteType] || 0;
+            ctx.fillText(`${eliteType}: ${spawned}/${killed}`, game.gameWidth - 315, eliteY + index * 15);
+        });
+        
+        // 精英怪物生成率
+        const eliteRate = stats.eliteSpawnAttempts > 0 ? 
+            ((stats.eliteSpawnSuccess / stats.eliteSpawnAttempts) * 100).toFixed(1) : '0.0';
+        ctx.fillStyle = '#FFD700';
+        ctx.fillText(`精英生成率: ${eliteRate}%`, game.gameWidth - 315, 285);
+    } else {
+         // 显示调试信息
+         ctx.fillStyle = '#FF6B6B';
+         ctx.font = '14px Arial';
+         ctx.fillText('怪物统计系统未初始化', game.gameWidth - 315, 50);
+         ctx.fillText(`update函数存在: ${updateExists ? '是' : '否'}`, game.gameWidth - 315, 70);
+         ctx.fillText('请检查gameLogic.js是否正确加载', game.gameWidth - 315, 90);
+     }
+    
     // 狂潮模式显示
     if (game.frenzyMode.active) {
         ctx.fillStyle = '#FF4444';
@@ -1163,7 +1365,7 @@ window.renderFloatingTexts = renderFloatingTexts;
 window.renderAoeRings = renderAoeRings;
 window.renderCriticalDisplays = renderCriticalDisplays;
 window.drawUI = drawUI;
-window.checkLevelUp = checkLevelUp;
+// checkLevelUp函数在gameLogic.js中定义，这里不需要导出
 window.gameOver = gameOver;
 
 // 导出函数（用于模块化）
@@ -1187,7 +1389,7 @@ if (typeof module !== 'undefined' && module.exports) {
         renderAoeRings,
         renderCriticalDisplays,
         drawUI,
-        checkLevelUp,
+        // checkLevelUp在gameLogic.js中定义
         gameOver
     };
 }

@@ -219,10 +219,10 @@ function checkCollisionAtPosition(x, y, radius) {
 
 // 激活激光技能
 function activateLaser() {
-    if (game.player.mana < game.player.laser.minMana || game.player.laser.cooldownTimer > 0) return;
+    if (game.player.mana < game.player.laser.minMana) return;
     
     game.player.laser.active = true;
-    game.player.laser.cooldownTimer = game.player.laser.cooldown;  // 设置冷却时间
+    // 移除冷却时间限制，只要有魔力就能释放
     
     // 计算激光起点（玩家中心）
     game.player.laser.startX = game.player.x;
@@ -276,20 +276,38 @@ window.updateEnemies = updateEnemies;
 
 // 更新玩家状态 - 完整的玩家移动和交互逻辑
 function updatePlayer() {
+    // 重置引力场状态
+    game.player.inGravityField = false;
+    game.player.gravitySlowFactor = 1.0;
+    
+    // 处理不动状态计时器
+    if (game.player.immobilized && game.player.immobilizeTimer > 0) {
+        game.player.immobilizeTimer--;
+        if (game.player.immobilizeTimer <= 0) {
+            game.player.immobilized = false;
+        }
+    }
+    
     // 碰撞检测变量声明
     let onPlatform = false;
     
-    // 移动
-    if (game.keys['a'] || game.keys['arrowleft']) {
-        if (!game.player.isDashing) {
-            game.player.dx = -config.player.speed;
-        }
-    } else if (game.keys['d'] || game.keys['arrowright']) {
-        if (!game.player.isDashing) {
-            game.player.dx = config.player.speed;
+    // 移动 - 不动状态下阻止移动
+    if (!game.player.immobilized) {
+        if (game.keys['a'] || game.keys['arrowleft']) {
+            if (!game.player.isDashing) {
+                game.player.dx = -config.player.speed;
+            }
+        } else if (game.keys['d'] || game.keys['arrowright']) {
+            if (!game.player.isDashing) {
+                game.player.dx = config.player.speed;
+            }
+        } else {
+            game.player.dx *= config.friction;
         }
     } else {
-        game.player.dx *= config.friction;
+        // 不动状态下强制停止移动
+        game.player.dx = 0;
+        game.player.dy = Math.max(0, game.player.dy); // 保持重力下落
     }
     
     // 冲刺检测
@@ -447,16 +465,22 @@ function updatePlayer() {
                     // 移除砖块
                     game.brickBlocks.splice(i, 1);
                     
-                    // 增加玩家经验和分数
-                    game.player.experience += 5;
-                    game.score += 10;
+                    // 增加玩家经验和分数（比打怪少）
+                    const expGain = 3; // 比打怪少的经验
+                    const scoreGain = 5; // 比打怪少的分数
+                    
+                    game.player.exp += expGain;
+                    game.score += scoreGain;
                     
                     // 显示经验获得
+                    createExperienceNumber(brickBlock.x + brickBlock.width / 2, brickBlock.y, expGain);
+                    
+                    // 显示分数获得
                     game.floatingTexts.push({
                         x: brickBlock.x + brickBlock.width / 2,
-                        y: brickBlock.y,
-                        text: '+5 EXP',
-                        color: '#00ff00',
+                        y: brickBlock.y - 20,
+                        text: `+${scoreGain}`,
+                        color: '#FFD700',
                         lifetime: 60,
                         dy: -1
                     });

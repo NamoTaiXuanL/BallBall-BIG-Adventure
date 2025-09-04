@@ -1,6 +1,78 @@
 // 球球大冒险 - 游戏核心逻辑模块
 // 包含游戏规则、状态管理、碰撞检测、敌人AI、物理引擎等核心算法
 
+// 怪物统计系统 - v3.8.0
+const monsterStats = {
+    // 总计数据
+    totalSpawned: 0,
+    totalKilled: 0,
+    
+    // 按类型分类的生成统计
+    spawnedByType: {
+        red: 0,
+        blue: 0,
+        white: 0,
+        black: 0,
+        largered: 0,
+        rotating: 0,
+        teleport: 0,
+        snake: 0,
+        yellow: 0,
+        control: 0,
+        elite: 0,
+        // 精英怪物子类型
+        graviton: 0,
+        destroyer: 0,
+        guardian: 0,
+        vortex: 0
+    },
+    
+    // 按类型分类的击杀统计
+    killedByType: {
+        red: 0,
+        blue: 0,
+        white: 0,
+        black: 0,
+        largered: 0,
+        rotating: 0,
+        teleport: 0,
+        snake: 0,
+        yellow: 0,
+        control: 0,
+        elite: 0,
+        // 精英怪物子类型
+        graviton: 0,
+        destroyer: 0,
+        guardian: 0,
+        vortex: 0
+    },
+    
+    // 精英怪物调试信息
+    eliteSpawnAttempts: 0,
+    eliteSpawnSuccess: 0,
+    eliteSpawnFailReasons: {
+        distance: 0,
+        random: 0
+    },
+    
+    // 重置统计数据
+    reset: function() {
+        this.totalSpawned = 0;
+        this.totalKilled = 0;
+        this.eliteSpawnAttempts = 0;
+        this.eliteSpawnSuccess = 0;
+        
+        Object.keys(this.spawnedByType).forEach(type => {
+            this.spawnedByType[type] = 0;
+            this.killedByType[type] = 0;
+        });
+        
+        Object.keys(this.eliteSpawnFailReasons).forEach(reason => {
+            this.eliteSpawnFailReasons[reason] = 0;
+        });
+    }
+};
+
 // 导入输入处理模块中的动作控制函数
 // 在浏览器环境中直接使用window对象上的函数
 let inputHandler = {
@@ -141,15 +213,27 @@ function createEnemy(x, y, type) {
     // 根据类型设置特殊属性
     applyEnemyTypeProperties(enemy);
     
+    // 怪物统计追踪
+    monsterStats.totalSpawned++;
+    if (monsterStats.spawnedByType[type] !== undefined) {
+        monsterStats.spawnedByType[type]++;
+    }
+    
+    // 精英怪物子类型统计
+    if (type === 'elite' && enemy.eliteType && monsterStats.spawnedByType[enemy.eliteType] !== undefined) {
+        monsterStats.spawnedByType[enemy.eliteType]++;
+    }
+    
     game.enemies.push(enemy);
 }
 
 // 获取敌人基础速度
 function getEnemyBaseSpeed(type) {
+    // v3.7.1: 增强怪物基础速度
     switch(type) {
-        case 'black': return 2.5;
-        case 'white': return 4.5;
-        default: return 3.5;
+        case 'black': return 3.5;  // 从2.5提升到3.5
+        case 'white': return 5.5;  // 从4.5提升到5.5
+        default: return 4.5;      // 从3.5提升到4.5
     }
 }
 
@@ -199,11 +283,11 @@ function applyEnemyTypeProperties(enemy) {
             enemy.maxHealth = enemy.health;
             enemy.speed *= 1.3;
             enemy.teleportCooldown = 0;
-            enemy.teleportInterval = 180;
-            enemy.teleportRange = 400;
+            enemy.teleportInterval = 120; // 缩短传送间隔，增强威胁性
+            enemy.teleportRange = 500; // 增加传送范围
             enemy.isCharging = false;
             enemy.chargeTime = 0;
-            enemy.maxChargeTime = 60;
+            enemy.maxChargeTime = 45; // 缩短蓄力时间
             break;
         case 'snake':
             enemy.radius *= 0.9;
@@ -256,20 +340,52 @@ function applyEnemyTypeProperties(enemy) {
             enemy.controlInterval = 180;
             break;
         case 'elite':
+            // 精英怪物基础属性
             enemy.radius *= 2.0;
             enemy.health *= 8;
             enemy.maxHealth = enemy.health;
             enemy.speed *= 0.6;
             enemy.damage = 25;
-            enemy.gravityFieldRadius = 200;
-            enemy.gravityStrength = 0.8;
             enemy.bigBulletCooldown = 0;
             enemy.bigBulletInterval = 240;
             enemy.orbs = [];
             
-            const orbCount = 3 + Math.floor(Math.random() * 3);
-            for (let i = 0; i < orbCount; i++) {
-                const angle = (i / orbCount) * Math.PI * 2;
+            // 随机选择精英怪物子类型
+            const eliteVariants = ['graviton', 'destroyer', 'guardian', 'vortex'];
+            enemy.eliteType = eliteVariants[Math.floor(Math.random() * eliteVariants.length)];
+            
+            // 根据子类型设置特殊属性
+            switch(enemy.eliteType) {
+                case 'graviton': // 引力型
+                    enemy.gravityFieldRadius = 350;
+                    enemy.gravityStrength = 1.2;
+                    enemy.orbCount = 4;
+                    break;
+                case 'destroyer': // 破坏型
+                    enemy.gravityFieldRadius = 250;
+                    enemy.gravityStrength = 0.8;
+                    enemy.damage *= 1.5;
+                    enemy.bigBulletInterval = 180;
+                    enemy.orbCount = 6;
+                    break;
+                case 'guardian': // 防御型
+                    enemy.gravityFieldRadius = 300;
+                    enemy.gravityStrength = 1.0;
+                    enemy.health *= 1.5;
+                    enemy.maxHealth = enemy.health;
+                    enemy.orbCount = 3;
+                    break;
+                case 'vortex': // 漩涡型
+                    enemy.gravityFieldRadius = 400;
+                    enemy.gravityStrength = 1.5;
+                    enemy.speed *= 1.3;
+                    enemy.orbCount = 5;
+                    break;
+            }
+            
+            // 创建环绕球
+            for (let i = 0; i < enemy.orbCount; i++) {
+                const angle = (i / enemy.orbCount) * Math.PI * 2;
                 const orbRadius = enemy.radius * 0.4;
                 const orbitDistance = enemy.radius + 40;
                 enemy.orbs.push({
@@ -413,10 +529,37 @@ function spawnEnemyNearPlayer() {
     const x = game.player.x + Math.cos(angle) * distance;
     const y = game.player.y + Math.sin(angle) * distance;
     
-    const enemyTypes = ['red', 'blue', 'white', 'black', 'largered', 'rotating', 'teleport', 'snake', 'yellow', 'control'];
-    const type = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
+    // 检查是否生成精英怪物（使用正确的概率）
+    const distanceToPlayer = Math.sqrt(
+        Math.pow(x - game.player.x, 2) + 
+        Math.pow(y - game.player.y, 2)
+    );
     
-    createEnemy(x, y, type);
+    let enemyType;
+    const eliteRoll = Math.random();
+    
+    // 记录精英怪物生成尝试
+    if (eliteRoll < config.enemies.eliteSpawnChance) {
+        monsterStats.eliteSpawnAttempts++;
+        
+        // 检查距离限制
+        if (distanceToPlayer >= config.enemies.eliteMinDistance && 
+            distanceToPlayer <= config.enemies.eliteMaxDistance) {
+            enemyType = 'elite';
+            monsterStats.eliteSpawnSuccess++;
+        } else {
+            // 距离不合适，生成普通怪物
+            monsterStats.eliteSpawnFailReasons.distance++;
+            const normalTypes = ['red', 'blue', 'white', 'black', 'largered', 'rotating', 'teleport', 'snake', 'yellow', 'control'];
+            enemyType = normalTypes[Math.floor(Math.random() * normalTypes.length)];
+        }
+    } else {
+         // 生成普通怪物（随机概率未命中精英怪物，这是正常情况，不计入失败）
+         const normalTypes = ['red', 'blue', 'white', 'black', 'largered', 'rotating', 'teleport', 'snake', 'yellow', 'control'];
+         enemyType = normalTypes[Math.floor(Math.random() * normalTypes.length)];
+     }
+    
+    createEnemy(x, y, enemyType);
 }
 
 // 更新带刺球球生成
@@ -738,14 +881,21 @@ function handlePlatformCollision(player, platform) {
         } else {
             // 垂直碰撞
             if (dy > 0) {
+                // v3.7.2: 完全跳跃穿透 - 玩家从下方向上时完全无视平台
+                if (player.dy < 0) { // 任何向上速度都允许穿透
+                    return false; // 不处理碰撞，完全穿透
+                }
                 player.y = platform.y + platform.height + player.radius;
                 player.dy = Math.max(0, player.dy);
             } else {
-                player.y = platform.y - player.radius;
-                player.dy = 0;
-                player.isJumping = false;
-                player.jumpCount = 0;
-                return true; // 在平台上
+                // 只有从上方落下时才会站在平台上
+                if (player.dy > 0) { // 向下落时才碰撞
+                    player.y = platform.y - player.radius;
+                    player.dy = 0;
+                    player.isJumping = false;
+                    player.jumpCount = 0;
+                    return true; // 在平台上
+                }
             }
         }
     }
@@ -1053,10 +1203,10 @@ function updateWindFireWheels() {
 
 // 激活激光技能
 function activateLaser() {
-    if (game.player.mana < game.player.laser.minMana || game.player.laser.cooldownTimer > 0) return;
+    if (game.player.mana < game.player.laser.minMana) return;
     
     game.player.laser.active = true;
-    game.player.laser.cooldownTimer = game.player.laser.cooldown;
+    // 移除冷却时间限制，只要有魔力就能释放
     
     // 计算激光起点（玩家中心）
     game.player.laser.startX = game.player.x;
@@ -1338,11 +1488,26 @@ function updateTeleportEnemy(enemy) {
     if (enemy.isCharging) {
         enemy.chargeTime++;
         if (enemy.chargeTime >= enemy.maxChargeTime) {
-            // 执行传送
-            const angle = Math.random() * Math.PI * 2;
-            const distance = randomBetween(100, enemy.teleportRange);
-            enemy.x += Math.cos(angle) * distance;
-            enemy.y += Math.sin(angle) * distance;
+            // 执行传送 - 70%概率向玩家方向传送，30%概率随机传送
+            let targetX, targetY;
+            if (Math.random() < 0.7) {
+                // 向玩家方向传送
+                const playerDx = game.player.x - enemy.x;
+                const playerDy = game.player.y - enemy.y;
+                const playerDistance = Math.sqrt(playerDx * playerDx + playerDy * playerDy);
+                const teleportDistance = randomBetween(150, Math.min(enemy.teleportRange, playerDistance * 0.8));
+                const angle = Math.atan2(playerDy, playerDx);
+                targetX = enemy.x + Math.cos(angle) * teleportDistance;
+                targetY = enemy.y + Math.sin(angle) * teleportDistance;
+            } else {
+                // 随机传送
+                const angle = Math.random() * Math.PI * 2;
+                const distance = randomBetween(100, enemy.teleportRange);
+                targetX = enemy.x + Math.cos(angle) * distance;
+                targetY = enemy.y + Math.sin(angle) * distance;
+            }
+            enemy.x = targetX;
+            enemy.y = targetY;
             
             enemy.isCharging = false;
             enemy.chargeTime = 0;
@@ -1439,24 +1604,42 @@ function updateControlEnemy(enemy) {
         (0.5 + 0.5 * Math.sin(enemy.controlRingPulse));
     
     // 检查玩家是否在控制圈内
-    if (enemy.controlCooldown >= enemy.controlInterval) {
-        const dx = game.player.x - enemy.x;
-        const dy = game.player.y - enemy.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        if (distance < enemy.controlRingRadius) {
-            // 对玩家施加减速效果
-            game.player.dx *= enemy.slowEffect;
-            game.player.dy *= enemy.slowEffect;
-            
-            // 重置冷却
-            enemy.controlCooldown = 0;
+    const dx = game.player.x - enemy.x;
+    const dy = game.player.y - enemy.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    if (distance < enemy.controlRingRadius) {
+        // 进入引力圈时立即设置不动状态
+        if (!game.player.immobilized) {
+            game.player.immobilized = true;
+            game.player.immobilizeTimer = 60; // 1秒 (60帧)
+            game.player.dx = 0; // 立即停止移动
+            game.player.dy = 0;
         }
     }
 }
 
 // 更新精英敌人
 function updateEliteEnemy(enemy) {
+    // 确保orbs属性存在
+    if (!enemy.orbs || !Array.isArray(enemy.orbs)) {
+        enemy.orbs = [];
+        // 重新初始化轨道球
+        const orbCount = 3 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < orbCount; i++) {
+            const angle = (i / orbCount) * Math.PI * 2;
+            const orbRadius = enemy.radius * 0.4;
+            const orbitDistance = enemy.radius + 40;
+            enemy.orbs.push({
+                angle: angle,
+                radius: orbRadius,
+                orbitDistance: orbitDistance,
+                health: enemy.health * 0.2,
+                maxHealth: enemy.health * 0.2
+            });
+        }
+    }
+    
     // 更新环绕小球
     for (const orb of enemy.orbs) {
         orb.angle += 0.02;
@@ -1474,6 +1657,15 @@ function updateEliteEnemy(enemy) {
         const angle = Math.atan2(dy, dx);
         game.player.dx += Math.cos(angle) * pullStrength;
         game.player.dy += Math.sin(angle) * pullStrength;
+        
+        // 迟缓效果 - 减少玩家移动速度
+        const slowFactor = 0.3 + 0.4 * (distance / enemy.gravityFieldRadius); // 0.3-0.7倍速度
+        game.player.dx *= slowFactor;
+        game.player.dy *= slowFactor;
+        
+        // 标记玩家处于引力场中
+        game.player.inGravityField = true;
+        game.player.gravitySlowFactor = slowFactor;
     }
     
     // 大型子弹攻击
@@ -1672,6 +1864,17 @@ function handleEnemyProjectileCollision(enemy, projectile, projectileIndex) {
 
 // 处理敌人死亡
 function handleEnemyDeath(enemy, index) {
+    // 怪物死亡统计追踪
+    monsterStats.totalKilled++;
+    if (monsterStats.killedByType[enemy.type] !== undefined) {
+        monsterStats.killedByType[enemy.type]++;
+    }
+    
+    // 精英怪物子类型击杀统计
+    if (enemy.type === 'elite' && enemy.eliteType && monsterStats.killedByType[enemy.eliteType] !== undefined) {
+        monsterStats.killedByType[enemy.eliteType]++;
+    }
+    
     // 经验和分数奖励
     const expGain = Math.floor(enemy.maxHealth / 4) + 5;
     const scoreGain = Math.floor(enemy.maxHealth / 2) + 10;
@@ -1723,6 +1926,88 @@ function updateProjectiles() {
             game.projectiles.splice(i, 1);
             continue;
         }
+        
+        // 检测投射物与石块碰撞
+        let hitStone = false;
+        for (const stoneBlock of game.stoneBlocks) {
+            if (
+                projectile.x + projectile.radius > stoneBlock.x &&
+                projectile.x - projectile.radius < stoneBlock.x + stoneBlock.width &&
+                projectile.y + projectile.radius > stoneBlock.y &&
+                projectile.y - projectile.radius < stoneBlock.y + stoneBlock.height
+            ) {
+                // 投射物撞到石块，移除投射物
+                ObjectPool.recycleProjectile(projectile);
+                game.projectiles.splice(i, 1);
+                hitStone = true;
+                break;
+            }
+        }
+        
+        if (hitStone) continue;
+        
+        // 检测投射物与砖块碰撞
+        let hitBrick = false;
+        for (let j = game.brickBlocks.length - 1; j >= 0; j--) {
+            const brickBlock = game.brickBlocks[j];
+            if (
+                projectile.x + projectile.radius > brickBlock.x &&
+                projectile.x - projectile.radius < brickBlock.x + brickBlock.width &&
+                projectile.y + projectile.radius > brickBlock.y &&
+                projectile.y - projectile.radius < brickBlock.y + brickBlock.height
+            ) {
+                // 砖块受到伤害
+                brickBlock.health -= projectile.damage;
+                
+                // 生成击中粒子效果
+                for (let k = 0; k < 5; k++) {
+                    game.particles.push({
+                        x: brickBlock.x + brickBlock.width / 2,
+                        y: brickBlock.y + brickBlock.height / 2,
+                        dx: randomBetween(-3, 3),
+                        dy: randomBetween(-3, 3),
+                        radius: randomBetween(1, 3),
+                        color: '#CD853F',
+                        lifetime: 20
+                    });
+                }
+                
+                // 如果砖块被摧毁
+                if (brickBlock.health <= 0) {
+                    // 移除砖块
+                    game.brickBlocks.splice(j, 1);
+                    
+                    // 增加玩家经验和分数（比打怪少）
+                    game.player.exp += 3;
+                    game.score += 5;
+                    
+                    // 显示经验和分数获得
+                    createExperienceNumber(brickBlock.x + brickBlock.width / 2, brickBlock.y, 3);
+                    createFloatingText(brickBlock.x + brickBlock.width / 2, brickBlock.y - 20, '+5', '#FFD700', 60, 1.2);
+                    
+                    // 生成破坏粒子效果
+                    for (let k = 0; k < 12; k++) {
+                        game.particles.push({
+                            x: brickBlock.x + brickBlock.width / 2,
+                            y: brickBlock.y + brickBlock.height / 2,
+                            dx: randomBetween(-5, 5),
+                            dy: randomBetween(-5, 5),
+                            radius: randomBetween(2, 5),
+                            color: config.colors.brick,
+                            lifetime: 30
+                        });
+                    }
+                }
+                
+                // 移除投射物
+                ObjectPool.recycleProjectile(projectile);
+                game.projectiles.splice(i, 1);
+                hitBrick = true;
+                break;
+            }
+        }
+        
+        if (hitBrick) continue;
         
         // 距离检查优化
         const dx = projectile.x - game.player.x;
@@ -2215,9 +2500,22 @@ function generatePlatformInArea(centerX, centerY, areaType) {
         const y = centerY + randomBetween(-100, 100);
         const isGroundBlock = Math.random() < config.platforms.groundBlockChance;
         const isMainland = Math.random() < config.platforms.mainlandChance;
-        const hasStoneBlock = Math.random() < config.platforms.stoneBlockChance;
-        const hasBrickBlock = Math.random() < config.platforms.brickBlockChance;
-        const hasCloud = Math.random() < config.platforms.cloudChance;
+        
+        // 防止元素堆叠 - 每个平台只能有一种装饰元素
+        let hasStoneBlock = false;
+        let hasBrickBlock = false;
+        let hasCloud = false;
+        
+        // 随机选择一种装饰元素类型
+        const decorationRoll = Math.random();
+        if (decorationRoll < config.platforms.stoneBlockChance) {
+            hasStoneBlock = true;
+        } else if (decorationRoll < config.platforms.stoneBlockChance + config.platforms.brickBlockChance) {
+            hasBrickBlock = true;
+        } else if (decorationRoll < config.platforms.stoneBlockChance + config.platforms.brickBlockChance + config.platforms.cloudChance) {
+            hasCloud = true;
+        }
+        // 否则该平台没有装饰元素
 
         
         let newPlatform;
@@ -2400,6 +2698,7 @@ window.activateLaser = activateLaser;
 window.updateLaser = updateLaser;
 window.checkCollisionAtPosition = checkCollisionAtPosition;
 window.checkLevelUp = checkLevelUp;
+window.monsterStats = monsterStats;
 
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
@@ -2448,6 +2747,8 @@ if (typeof module !== 'undefined' && module.exports) {
         updateWindFireWheels,
         activateLaser,
         updateLaser,
-        checkCollisionAtPosition
+        checkCollisionAtPosition,
+        checkLevelUp,
+        monsterStats
     };
 }
