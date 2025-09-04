@@ -1053,6 +1053,12 @@ function activateWindFireWheels() {
     game.player.windFireWheels.rotation = 0; // 初始化旋转角度
     game.player.rage -= game.player.windFireWheels.rageCost;
     
+    // 风火轮激活时立即解除所有控制状态
+    game.player.immobilized = false;
+    game.player.immobilizeTimer = 0;
+    game.player.isSlowed = false;
+    game.player.slowedTime = 0;
+    
     // 风火轮激活粒子效果
     for (let i = 0; i < 30; i++) {
         game.particles.push({
@@ -1609,6 +1615,12 @@ function updateControlEnemy(enemy) {
     const distance = Math.sqrt(dx * dx + dy * dy);
     
     if (distance < enemy.controlRingRadius) {
+        // 检查玩家是否有风火轮免控效果
+        if (game.player.windFireWheels && game.player.windFireWheels.active) {
+            // 风火轮激活时免疫控制效果
+            return;
+        }
+        
         // 进入引力圈时立即设置不动状态
         if (!game.player.immobilized) {
             game.player.immobilized = true;
@@ -1653,6 +1665,12 @@ function updateEliteEnemy(enemy) {
     const distance = Math.sqrt(dx * dx + dy * dy);
     
     if (distance < enemy.gravityFieldRadius) {
+        // 检查玩家是否有风火轮免控效果
+        if (game.player.windFireWheels && game.player.windFireWheels.active) {
+            // 风火轮激活时免疫引力场效果
+            return;
+        }
+        
         const pullStrength = enemy.gravityStrength * (1 - distance / enemy.gravityFieldRadius);
         const angle = Math.atan2(dy, dx);
         game.player.dx += Math.cos(angle) * pullStrength;

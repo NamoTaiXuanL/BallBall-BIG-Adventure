@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>球球大冒险 3.6.3 - 重构版</title>
+    <title>球球大冒险 v3.8.0</title>
     <style>
         body {
             margin: 0;
@@ -18,10 +18,10 @@
     <canvas id="gameCanvas"></canvas>
     
     <!-- 引入模块文件 -->
-    <script src="utils.js?v=3.7.8"></script>
-        <script src="inputHandler.js?v=3.7.8"></script>
-        <script src="gameLogic.js?v=3.7.8"></script>
-        <script src="render.js?v=3.7.8"></script>
+    <script src="utils.js?v=3.8.0"></script>
+            <script src="inputHandler.js?v=3.8.0"></script>
+            <script src="gameLogic.js?v=3.8.0"></script>
+            <script src="render.js?v=3.8.0"></script>
     
     <script>
         // 游戏配置
@@ -290,7 +290,7 @@
                     duration: 0,
                     cooldown: 600,
                     cooldownTimer: 0,
-                    radius: 80,
+                    radius: 120,  // 增大半径避免与状态圆环重合
                     rotation: 0
                 },
                 // 激光技能属性

@@ -788,6 +788,53 @@ function renderEnemies(ctx, viewLeft, viewRight, viewTop, viewBottom) {
 
 // 渲染玩家
 function renderPlayer(ctx) {
+    // 状态圆环配置
+    const ringConfig = {
+        health: { color: '#4CAF50', radius: game.player.radius + 15 },    // 生命 - 绿色
+        mana: { color: '#2196F3', radius: game.player.radius + 25 },      // 魔力 - 蓝色
+        rage: { color: '#FF5722', radius: game.player.radius + 35 },      // 怒气 - 红色
+        stamina: { color: '#FF9800', radius: game.player.radius + 45 }    // 精力 - 橙色
+    };
+    
+    // 渲染状态圆环
+    ctx.lineWidth = 4;
+    
+    // 生命圆环
+    const healthPercent = game.player.health / game.player.maxHealth;
+    ctx.strokeStyle = ringConfig.health.color;
+    ctx.globalAlpha = 0.8;
+    ctx.beginPath();
+    ctx.arc(game.player.x, game.player.y, ringConfig.health.radius, -Math.PI / 2, 
+           -Math.PI / 2 + (Math.PI * 2 * healthPercent));
+    ctx.stroke();
+    
+    // 魔力圆环
+    const manaPercent = game.player.mana / game.player.maxMana;
+    ctx.strokeStyle = ringConfig.mana.color;
+    ctx.beginPath();
+    ctx.arc(game.player.x, game.player.y, ringConfig.mana.radius, -Math.PI / 2, 
+           -Math.PI / 2 + (Math.PI * 2 * manaPercent));
+    ctx.stroke();
+    
+    // 怒气圆环
+    const ragePercent = game.player.rage / game.player.maxRage;
+    ctx.strokeStyle = ringConfig.rage.color;
+    ctx.beginPath();
+    ctx.arc(game.player.x, game.player.y, ringConfig.rage.radius, -Math.PI / 2, 
+           -Math.PI / 2 + (Math.PI * 2 * ragePercent));
+    ctx.stroke();
+    
+    // 精力圆环
+    const staminaPercent = game.player.stamina / game.player.maxStamina;
+    ctx.strokeStyle = ringConfig.stamina.color;
+    ctx.beginPath();
+    ctx.arc(game.player.x, game.player.y, ringConfig.stamina.radius, -Math.PI / 2, 
+           -Math.PI / 2 + (Math.PI * 2 * staminaPercent));
+    ctx.stroke();
+    
+    // 重置透明度
+    ctx.globalAlpha = 1.0;
+    
     // 玩家主体
     ctx.fillStyle = config.colors.player;
     ctx.beginPath();

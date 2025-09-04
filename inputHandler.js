@@ -282,17 +282,26 @@ function updatePlayer() {
     
     // 处理不动状态计时器
     if (game.player.immobilized && game.player.immobilizeTimer > 0) {
-        game.player.immobilizeTimer--;
-        if (game.player.immobilizeTimer <= 0) {
+        // 检查风火轮免控效果
+        if (game.player.windFireWheels && game.player.windFireWheels.active) {
+            // 风火轮激活时立即解除控制状态
             game.player.immobilized = false;
+            game.player.immobilizeTimer = 0;
+        } else {
+            game.player.immobilizeTimer--;
+            if (game.player.immobilizeTimer <= 0) {
+                game.player.immobilized = false;
+            }
         }
     }
     
     // 碰撞检测变量声明
     let onPlatform = false;
     
-    // 移动 - 不动状态下阻止移动
-    if (!game.player.immobilized) {
+    // 移动 - 不动状态下阻止移动，但风火轮激活时免疫控制
+    const isControlled = game.player.immobilized && !(game.player.windFireWheels && game.player.windFireWheels.active);
+    
+    if (!isControlled) {
         if (game.keys['a'] || game.keys['arrowleft']) {
             if (!game.player.isDashing) {
                 game.player.dx = -config.player.speed;
