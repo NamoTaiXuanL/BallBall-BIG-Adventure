@@ -100,21 +100,53 @@ function updateSpawnPoints() {
             continue;
         }
         
-        // 只处理玩家1200像素范围内的生成点
-        if (distance > 1200) continue;
+        // 更新区域冷却时间
+        if (spawnPoint.areaCooldown > 0) {
+            spawnPoint.areaCooldown--;
+        }
         
-        // 更新冷却时间
+        // 更新普通冷却时间
         if (spawnPoint.cooldownTimer > 0) {
             spawnPoint.cooldownTimer--;
         }
         
-        // 检查激活条件
+        // 检查区域是否过度刷怪（5秒内击杀超过15个怪物）
+         const currentTime = Date.now();
+         if (currentTime - spawnPoint.lastKillTime < 5000 && spawnPoint.killCount > 15) {
+             if (spawnPoint.areaCooldown <= 0) {
+                 spawnPoint.areaCooldown = 1800; // 30秒区域冷却
+                 spawnPoint.killCount = 0;
+                 spawnPoint.spawnRate = 0.1; // 降低生成速度
+                 
+                 // 显示区域冷却提示
+                 const playerDistance = Math.sqrt(
+                     Math.pow(spawnPoint.x - game.player.x, 2) + 
+                     Math.pow(spawnPoint.y - game.player.y, 2)
+                 );
+                 if (playerDistance < 800) {
+                     createFloatingText(spawnPoint.x, spawnPoint.y - 50, '区域冷却中...', '#FF6B6B', 180, 1.2);
+                 }
+             }
+         }
+        
+        // 恢复生成速度
+        if (spawnPoint.areaCooldown <= 0 && spawnPoint.spawnRate < 1.0) {
+            spawnPoint.spawnRate = Math.min(1.0, spawnPoint.spawnRate + 0.01);
+        }
+        
+        // 只处理玩家1200像素范围内的生成点
+        if (distance > 1200) continue;
+        
+        // 检查激活条件（区域冷却时不激活）
         const isInRange = distance < config.spawnPoints.activationRange;
-        const canSpawn = spawnPoint.cooldownTimer <= 0;
+        const canSpawn = spawnPoint.cooldownTimer <= 0 && spawnPoint.areaCooldown <= 0;
         
         if (isInRange && canSpawn) {
             // 检查当前敌人数量
             const currentEnemies = game.enemies.filter(enemy => {
+                if (!enemy || enemy.x === undefined || enemy.y === undefined) {
+                    return false;
+                }
                 const dx = enemy.x - spawnPoint.x;
                 const dy = enemy.y - spawnPoint.y;
                 return Math.sqrt(dx * dx + dy * dy) < 300;
@@ -123,9 +155,9 @@ function updateSpawnPoints() {
             const maxEnemies = spawnPoint.density === 'high' ? 6 : 3;
             
             if (currentEnemies < maxEnemies) {
-                // 计算生成概率
+                // 计算生成概率（考虑区域生成速度）
                 const playerSpeed = Math.sqrt(game.player.dx * game.player.dx + game.player.dy * game.player.dy);
-                const baseChance = 0.4;
+                const baseChance = 0.4 * spawnPoint.spawnRate;
                 const speedBonus = Math.min(0.3, playerSpeed * 0.05);
                 const spawnChance = baseChance + speedBonus;
                 
@@ -1546,6 +1578,12 @@ function updateEnemies() {
     for (let i = game.enemies.length - 1; i >= 0; i--) {
         const enemy = game.enemies[i];
         
+        // 检查敌人是否有效
+        if (!enemy) {
+            game.enemies.splice(i, 1);
+            continue;
+        }
+        
         // 眩晕状态处理
         if (enemy.stunned > 0) {
             enemy.stunned--;
@@ -2010,12 +2048,19 @@ function handleEnemyDeath(enemy, index) {
         monsterStats.killedByType[enemy.eliteType]++;
     }
     
-    // 检查buff掉落 - 三相之力
+    // 更新附近生成点的击杀统计（用于区域冷却）
+    updateSpawnPointKillStats(enemy.x, enemy.y);
+    
+    // 检查buff掉落
     if (game.buffSystem && game.buffSystem.checkBuffDrop) {
         const buffDropped = game.buffSystem.checkBuffDrop(enemy.type);
         if (buffDropped) {
-            // 创建buff获得提示
-            createFloatingText(enemy.x, enemy.y - 30, '三相之力!', '#FFD700', 120, 1.5);
+            // 根据掉落的buff类型创建相应提示
+            if (game.buffSystem.isBuffActive('trinityForce')) {
+                createFloatingText(enemy.x, enemy.y - 30, '三相之力!', '#FFD700', 120, 1.5);
+            } else if (game.buffSystem.isBuffActive('solarFlare')) {
+                createFloatingText(enemy.x, enemy.y - 30, '日炎!', '#FF4444', 120, 1.5);
+            }
         }
     }
     
@@ -2398,6 +2443,52 @@ function updateAOERings() {
 }
 
 // 动态生成新的生成点
+// 更新生成点击杀统计
+function updateSpawnPointKillStats(enemyX, enemyY) {
+    const currentTime = Date.now();
+    
+    // 查找附近的生成点（300像素范围内）
+    for (const spawnPoint of game.spawnPoints) {
+        const dx = spawnPoint.x - enemyX;
+        const dy = spawnPoint.y - enemyY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance < 300) {
+            spawnPoint.killCount++;
+            spawnPoint.lastKillTime = currentTime;
+        }
+    }
+}
+
+// 预生成怪物函数
+function preSpawnMonstersAtPoint(spawnPoint) {
+    if (spawnPoint.preSpawned) return;
+    
+    const preSpawnCount = spawnPoint.density === 'high' ? randomBetween(3, 6) : 
+                         spawnPoint.density === 'medium' ? randomBetween(2, 4) : 
+                         randomBetween(1, 3);
+    
+    for (let i = 0; i < preSpawnCount; i++) {
+        const offsetX = randomBetween(-150, 150);
+        const offsetY = randomBetween(-150, 150);
+        const enemyX = spawnPoint.x + offsetX;
+        const enemyY = spawnPoint.y + offsetY;
+        
+        // 选择敌人类型
+        const enemyTypes = ['red', 'blue', 'white', 'black'];
+        const enemyType = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
+        
+        const enemy = createEnemy(enemyX, enemyY, enemyType);
+        game.enemies.push(enemy);
+        
+        monsterStats.totalSpawned++;
+        monsterStats.spawnedByType[enemyType]++;
+    }
+    
+    spawnPoint.preSpawned = true;
+    spawnPoint.enemiesSpawned += preSpawnCount;
+}
+
 function generateNewSpawnPoints() {
     const minSpawnPoints = 40;
     const maxSpawnPoints = 100;
@@ -2440,7 +2531,7 @@ function generateNewSpawnPoints() {
             }
             
             if (!tooClose) {
-                game.spawnPoints.push({
+                const spawnPoint = {
                     x: x,
                     y: y,
                     radius: 30,
@@ -2448,8 +2539,21 @@ function generateNewSpawnPoints() {
                     cooldownTimer: 0,
                     enemiesSpawned: 0,
                     lastActivationTime: 0,
-                    density: densityRoll < 0.3 ? 'high' : (densityRoll < 0.7 ? 'medium' : 'low')
-                });
+                    density: densityRoll < 0.3 ? 'high' : (densityRoll < 0.7 ? 'medium' : 'low'),
+                    // 新增：预生成和区域管理
+                    preSpawned: false,
+                    areaCooldown: 0,
+                    killCount: 0,
+                    lastKillTime: 0,
+                    spawnRate: 1.0
+                };
+                
+                // 30%概率预生成怪物
+                if (Math.random() < 0.3) {
+                    preSpawnMonstersAtPoint(spawnPoint);
+                }
+                
+                game.spawnPoints.push(spawnPoint);
             }
         }
     }
@@ -2784,16 +2888,44 @@ function enforceMonsterDensity() {
     
     // 计算范围内的敌人数量
     const enemiesInRange = game.enemies.filter(enemy => {
+        if (!enemy || enemy.x === undefined || enemy.y === undefined) {
+            return false;
+        }
         const dx = enemy.x - game.player.x;
         const dy = enemy.y - game.player.y;
         return Math.sqrt(dx * dx + dy * dy) < totalRange;
     }).length;
     
-    // 如果敌人数量不足，强制生成
-    const minEnemies = Math.max(5, Math.floor(screenRanges * 2));
+    // 动态调整最小怪物数量阈值
+    const baseMinEnemies = Math.max(15, Math.floor(screenRanges * 3));
+    const playerLevel = game.player.level || 1;
+    const minEnemies = Math.floor(baseMinEnemies + playerLevel * 0.5);
+    
+    // 如果敌人数量低于阈值，增加刷怪速度
     if (enemiesInRange < minEnemies) {
-        for (let i = 0; i < minEnemies - enemiesInRange; i++) {
+        const shortage = minEnemies - enemiesInRange;
+        const urgencyMultiplier = Math.min(3.0, 1.0 + shortage * 0.1);
+        
+        // 提升所有生成点的生成速度
+        for (const spawnPoint of game.spawnPoints) {
+            if (spawnPoint.areaCooldown <= 0) {
+                spawnPoint.spawnRate = Math.min(2.0, spawnPoint.spawnRate * urgencyMultiplier);
+                // 减少冷却时间
+                if (spawnPoint.cooldownTimer > 0) {
+                    spawnPoint.cooldownTimer = Math.max(1, Math.floor(spawnPoint.cooldownTimer * 0.5));
+                }
+            }
+        }
+        
+        // 强制生成怪物补充数量
+        const spawnCount = Math.min(shortage, 5);
+        for (let i = 0; i < spawnCount; i++) {
             spawnEnemyNearPlayer();
+        }
+    } else if (enemiesInRange > minEnemies * 1.5) {
+        // 如果怪物过多，降低生成速度
+        for (const spawnPoint of game.spawnPoints) {
+            spawnPoint.spawnRate = Math.max(0.3, spawnPoint.spawnRate * 0.9);
         }
     }
 }
@@ -2813,12 +2945,15 @@ function updateFrenzyMode() {
     // 检查激活条件
     if (!game.frenzyMode.active && game.frenzyMode.cooldown <= 0) {
         const nearbyEnemies = game.enemies.filter(enemy => {
+            if (!enemy || enemy.x === undefined || enemy.y === undefined) {
+                return false;
+            }
             const dx = enemy.x - game.player.x;
             const dy = enemy.y - game.player.y;
             return Math.sqrt(dx * dx + dy * dy) < 500;
         }).length;
         
-        if (nearbyEnemies >= 15) {
+        if (nearbyEnemies >= 8) {  // 降低触发条件从15到8个敌人
             game.frenzyMode.active = true;
             game.frenzyMode.duration = game.frenzyMode.maxDuration;
         }

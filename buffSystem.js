@@ -23,26 +23,53 @@ class BuffSystem {
                     goldenGlow: true, // 金光效果
                     windFireWheels: 3 // 三个风火轮
                 }
+            },
+            solarFlare: {
+                id: 'solarFlare',
+                name: '日炎',
+                duration: 12000, // 12秒
+                dropChance: 0.03, // 3%掉落概率
+                effects: {
+                    redGlow: true, // 红光闪烁
+                    burnAura: true, // 灼烧光环
+                    burnDamage: 500, // 灼烧伤害
+                    burnRadius: 600, // 灼烧范围(扩大5倍)
+                    burnInterval: 500 // 灼烧间隔(毫秒)
+                }
             }
         };
     }
 
     // 检查是否获得buff（击杀敌人时调用）
     checkBuffDrop(enemyType) {
+        // 检查三相之力掉落
         const trinityForce = this.buffDefinitions.trinityForce;
-        
-        // 根据敌人类型调整掉落概率
-        let dropChance = trinityForce.dropChance;
+        let trinityDropChance = trinityForce.dropChance;
         if (enemyType === 'elite') {
-            dropChance *= 3; // 精英怪3倍概率
+            trinityDropChance *= 3; // 精英怪3倍概率
         } else if (enemyType === 'boss') {
-            dropChance *= 5; // Boss 5倍概率
+            trinityDropChance *= 5; // Boss 5倍概率
         }
 
-        if (Math.random() < dropChance) {
+        if (Math.random() < trinityDropChance) {
             this.activateBuff('trinityForce');
             return true;
         }
+
+        // 检查日炎掉落
+        const solarFlare = this.buffDefinitions.solarFlare;
+        let solarDropChance = solarFlare.dropChance;
+        if (enemyType === 'elite') {
+            solarDropChance *= 2.5; // 精英怪2.5倍概率
+        } else if (enemyType === 'boss') {
+            solarDropChance *= 4; // Boss 4倍概率
+        }
+
+        if (Math.random() < solarDropChance) {
+            this.activateBuff('solarFlare');
+            return true;
+        }
+
         return false;
     }
 
@@ -62,6 +89,8 @@ class BuffSystem {
         // 根据buff类型执行特殊初始化
         if (buffId === 'trinityForce') {
             this.initTrinityForce(buff);
+        } else if (buffId === 'solarFlare') {
+            this.initSolarFlare(buff);
         }
 
         return true;
@@ -86,6 +115,23 @@ class BuffSystem {
         buff.glowSpeed = 0.1;
     }
 
+    // 初始化日炎buff
+    initSolarFlare(buff) {
+        // 红光闪烁效果参数
+        buff.redGlowIntensity = 0;
+        buff.redGlowDirection = 1;
+        buff.redGlowSpeed = 0.15;
+        
+        // 灼烧光环参数
+        buff.auraRadius = 0;
+        buff.auraMaxRadius = buff.effects.burnRadius;
+        buff.auraGrowSpeed = 3;
+        
+        // 灼烧伤害计时器
+        buff.lastBurnTime = 0;
+        buff.burnTargets = new Set(); // 记录已被灼烧的敌人，避免重复伤害
+    }
+
     // 更新buff状态
     update(deltaTime) {
         const currentTime = Date.now();
@@ -104,6 +150,8 @@ class BuffSystem {
     updateBuff(buffId, buff, deltaTime) {
         if (buffId === 'trinityForce') {
             this.updateTrinityForce(buff, deltaTime);
+        } else if (buffId === 'solarFlare') {
+            this.updateSolarFlare(buff, deltaTime);
         }
     }
 
@@ -124,6 +172,80 @@ class BuffSystem {
             buff.glowIntensity = 0.3;
             buff.glowDirection = 1;
         }
+    }
+
+    // 更新日炎效果
+    updateSolarFlare(buff, deltaTime) {
+        // 更新红光闪烁
+        buff.redGlowIntensity += buff.redGlowDirection * buff.redGlowSpeed;
+        if (buff.redGlowIntensity >= 1) {
+            buff.redGlowIntensity = 1;
+            buff.redGlowDirection = -1;
+        } else if (buff.redGlowIntensity <= 0.2) {
+            buff.redGlowIntensity = 0.2;
+            buff.redGlowDirection = 1;
+        }
+
+        // 更新灼烧光环半径
+        if (buff.auraRadius < buff.auraMaxRadius) {
+            buff.auraRadius += buff.auraGrowSpeed;
+            if (buff.auraRadius > buff.auraMaxRadius) {
+                buff.auraRadius = buff.auraMaxRadius;
+            }
+        }
+
+        // 处理灼烧伤害
+        const currentTime = Date.now();
+        if (currentTime - buff.lastBurnTime >= buff.effects.burnInterval) {
+            this.processBurnDamage(buff);
+            buff.lastBurnTime = currentTime;
+        }
+    }
+
+    // 处理灼烧伤害
+    processBurnDamage(buff) {
+        if (!this.game || !this.game.player || !this.game.enemies) return;
+
+        const player = this.game.player;
+        const enemies = this.game.enemies;
+        const burnRadius = buff.effects.burnRadius;
+        const burnDamage = buff.effects.burnDamage;
+
+        // 清空上次的灼烧目标记录
+        buff.burnTargets.clear();
+
+        // 检查范围内的敌人
+        enemies.forEach(enemy => {
+            const dx = enemy.x - player.x;
+            const dy = enemy.y - player.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance <= burnRadius) {
+                // 对敌人造成灼烧伤害
+                enemy.health -= burnDamage;
+                buff.burnTargets.add(enemy.id || enemy);
+
+                // 创建伤害数字显示
+                if (this.game.createDamageNumber) {
+                    this.game.createDamageNumber(enemy.x, enemy.y - 20, burnDamage, false, '#FF4444');
+                }
+
+                // 创建灼烧粒子效果
+                if (this.game.createParticle) {
+                    for (let i = 0; i < 3; i++) {
+                        this.game.createParticle({
+                            x: enemy.x + (Math.random() - 0.5) * 30,
+                            y: enemy.y + (Math.random() - 0.5) * 30,
+                            vx: (Math.random() - 0.5) * 2,
+                            vy: (Math.random() - 0.5) * 2,
+                            color: '#FF4444',
+                            life: 30,
+                            size: 3
+                        });
+                    }
+                }
+            }
+        });
     }
 
     // 停用buff
@@ -179,6 +301,21 @@ class BuffSystem {
             positions.push({ x, y, radius: 40 }); // 风火轮半径40
         }
         return positions;
+    }
+
+    // 获取日炎光环信息
+    getSolarFlareAura(playerX, playerY) {
+        const buff = this.getBuff('solarFlare');
+        if (!buff) return null;
+
+        return {
+            x: playerX,
+            y: playerY,
+            radius: buff.auraRadius,
+            maxRadius: buff.auraMaxRadius,
+            intensity: buff.redGlowIntensity,
+            burnDamage: buff.effects.burnDamage
+        };
     }
 
     // 获取剩余时间（毫秒）

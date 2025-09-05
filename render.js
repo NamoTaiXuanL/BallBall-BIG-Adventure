@@ -894,18 +894,104 @@ function renderPlayer(ctx) {
             ctx.fill();
         }
     } else {
-        // 普通玩家主体
-        ctx.fillStyle = config.colors.player;
-        ctx.beginPath();
-        ctx.arc(game.player.x, game.player.y, game.player.radius, 0, Math.PI * 2);
-        ctx.fill();
+        // 检查日炎buff是否激活
+        const hasSolarFlare = game.buffSystem && game.buffSystem.isBuffActive('solarFlare');
         
-        // 玩家边框
-        ctx.strokeStyle = '#1976D2';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(game.player.x, game.player.y, game.player.radius, 0, Math.PI * 2);
-        ctx.stroke();
+        if (hasSolarFlare) {
+            // 日炎红光闪烁效果
+            const solarFlareData = game.buffSystem.getSolarFlareAura();
+            if (solarFlareData) {
+                const time = performance.now() * 0.01;
+                const redGlowIntensity = Math.sin(time * 3) * 0.4 + 0.6; // 0.2-1.0之间闪烁
+                
+                // 外层红光光晕
+                const glowRadius = game.player.radius + 12;
+                const gradient = ctx.createRadialGradient(
+                    game.player.x, game.player.y, game.player.radius,
+                    game.player.x, game.player.y, glowRadius
+                );
+                gradient.addColorStop(0, `rgba(255, 68, 68, ${redGlowIntensity * 0.9})`);
+                gradient.addColorStop(0.6, `rgba(255, 68, 68, ${redGlowIntensity * 0.5})`);
+                gradient.addColorStop(1, 'rgba(255, 68, 68, 0)');
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(game.player.x, game.player.y, glowRadius, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 灼烧光环效果
+                const auraRadius = solarFlareData.radius;
+                const maxAuraRadius = solarFlareData.maxRadius;
+                const auraIntensity = Math.min(1, auraRadius / maxAuraRadius);
+                
+                ctx.strokeStyle = `rgba(255, 100, 100, ${auraIntensity * 0.6})`;
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(game.player.x, game.player.y, auraRadius, 0, Math.PI * 2);
+                ctx.stroke();
+                
+                // 玩家主体（带红光色调）
+                const playerColor = config.colors.player;
+                const r = parseInt(playerColor.slice(1, 3), 16);
+                const g = parseInt(playerColor.slice(3, 5), 16);
+                const b = parseInt(playerColor.slice(5, 7), 16);
+                
+                // 混合红色
+                const redR = Math.min(255, r + 120 * redGlowIntensity);
+                const redG = Math.max(0, g - 30 * redGlowIntensity);
+                const redB = Math.max(0, b - 30 * redGlowIntensity);
+                
+                ctx.fillStyle = `rgb(${Math.floor(redR)}, ${Math.floor(redG)}, ${Math.floor(redB)})`;
+                ctx.beginPath();
+                ctx.arc(game.player.x, game.player.y, game.player.radius, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 红色边框
+                ctx.strokeStyle = `rgba(255, 68, 68, ${redGlowIntensity})`;
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(game.player.x, game.player.y, game.player.radius, 0, Math.PI * 2);
+                ctx.stroke();
+                
+                // 内层红光粒子效果
+                for (let i = 0; i < 8; i++) {
+                    const angle = time * 2 + (i * Math.PI / 4);
+                    const distance = game.player.radius * 0.7;
+                    const particleX = game.player.x + Math.cos(angle) * distance;
+                    const particleY = game.player.y + Math.sin(angle) * distance;
+                    
+                    ctx.fillStyle = `rgba(255, 150, 150, ${redGlowIntensity * 0.9})`;
+                    ctx.beginPath();
+                    ctx.arc(particleX, particleY, 2.5, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            } else {
+                // 如果无法获取日炎数据，使用普通渲染
+                ctx.fillStyle = config.colors.player;
+                ctx.beginPath();
+                ctx.arc(game.player.x, game.player.y, game.player.radius, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.strokeStyle = '#1976D2';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(game.player.x, game.player.y, game.player.radius, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+        } else {
+            // 普通玩家主体
+            ctx.fillStyle = config.colors.player;
+            ctx.beginPath();
+            ctx.arc(game.player.x, game.player.y, game.player.radius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 玩家边框
+            ctx.strokeStyle = '#1976D2';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(game.player.x, game.player.y, game.player.radius, 0, Math.PI * 2);
+            ctx.stroke();
+        }
     }
     
     // 风火轮效果
@@ -1417,6 +1503,8 @@ function drawUI() {
          ctx.fillText('请检查gameLogic.js是否正确加载', game.gameWidth - 315, 90);
      }
     
+
+    
     // 狂潮模式显示
     if (game.frenzyMode.active) {
         ctx.fillStyle = '#FF4444';
@@ -1459,6 +1547,432 @@ function drawUI() {
     ctx.fillText('X - 风火轮 (15怒气)', game.gameWidth - 10, controlsY + 90);
     ctx.fillText('R - 激光 (魔力)', game.gameWidth - 10, controlsY + 105);
     ctx.fillText('F - 闪现 (精力)', game.gameWidth - 10, controlsY + 120);
+    
+    // 主角附近的动态分数显示
+    drawAnimatedScore();
+    
+    // 怪物击杀统计界面
+    if (game.ui && game.ui.showDetailedStats) {
+        drawMonsterKillStats();
+    } else {
+        drawSimpleKillStats();
+    }
+}
+
+// 绘制怪物击杀统计界面
+function drawMonsterKillStats() {
+    const ctx = game.ctx;
+    
+    if (!window.monsterStats) return;
+    
+    const stats = window.monsterStats;
+    const panelHeight = 140;
+    const panelY = game.gameHeight - panelHeight - 10;
+    const panelWidth = game.gameWidth - 20;
+    
+    // 面板背景渐变
+    const gradient = ctx.createLinearGradient(10, panelY, 10, panelY + panelHeight);
+    gradient.addColorStop(0, 'rgba(20, 20, 40, 0.95)');
+    gradient.addColorStop(1, 'rgba(10, 10, 20, 0.95)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(10, panelY, panelWidth, panelHeight);
+    
+    // 面板边框
+    ctx.strokeStyle = '#FFD700';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(10, panelY, panelWidth, panelHeight);
+    
+    // 内边框装饰
+    ctx.strokeStyle = 'rgba(255, 215, 0, 0.3)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(15, panelY + 5, panelWidth - 10, panelHeight - 10);
+    
+    // 标题背景
+    const titleGradient = ctx.createLinearGradient(20, panelY + 5, 200, panelY + 25);
+    titleGradient.addColorStop(0, 'rgba(255, 215, 0, 0.3)');
+    titleGradient.addColorStop(1, 'rgba(255, 215, 0, 0.1)');
+    ctx.fillStyle = titleGradient;
+    ctx.fillRect(20, panelY + 5, 180, 20);
+    
+    // 标题
+    ctx.fillStyle = '#FFD700';
+    ctx.font = 'bold 16px Arial';
+    ctx.textAlign = 'left';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 2;
+    ctx.fillText('⚔️ 怪物击杀统计', 25, panelY + 20);
+    ctx.shadowBlur = 0;
+    
+    // 总击杀数和图例
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 14px Arial';
+    ctx.fillText(`总击杀: ${stats.totalKilled}`, 25, panelY + 45);
+    
+    // 图例
+    const legendX = panelWidth - 200;
+    ctx.fillStyle = '#CCCCCC';
+    ctx.font = '12px Arial';
+    ctx.fillText('图例:', legendX, panelY + 25);
+    
+    // 绘制图例点
+    ctx.fillStyle = '#4444FF';
+    ctx.beginPath();
+    ctx.arc(legendX + 25, panelY + 21, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#CCCCCC';
+    ctx.fillText('10', legendX + 35, panelY + 25);
+    
+    ctx.fillStyle = '#44FF44';
+    ctx.beginPath();
+    ctx.arc(legendX + 55, panelY + 21, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#CCCCCC';
+    ctx.fillText('100', legendX + 65, panelY + 25);
+    
+    ctx.fillStyle = '#FF4444';
+    ctx.beginPath();
+    ctx.arc(legendX + 95, panelY + 21, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#CCCCCC';
+    ctx.fillText('1K', legendX + 105, panelY + 25);
+    
+    ctx.fillStyle = '#FFD700';
+    ctx.beginPath();
+    ctx.arc(legendX + 130, panelY + 21, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#CCCCCC';
+    ctx.fillText('10K', legendX + 140, panelY + 25);
+    
+    // 获取所有怪物类型
+    const monsterTypes = Object.keys(stats.killedByType).filter(type => stats.killedByType[type] > 0);
+    
+    // 计算布局
+    const startX = 25;
+    const startY = panelY + 70;
+    const itemWidth = 140;
+    const itemHeight = 22;
+    const cols = Math.floor((panelWidth - 40) / itemWidth);
+    
+    // 绘制每种怪物的统计
+    monsterTypes.forEach((type, index) => {
+        const killCount = stats.killedByType[type];
+        const col = index % cols;
+        const row = Math.floor(index / cols);
+        const x = startX + col * itemWidth;
+        const y = startY + row * itemHeight;
+        
+        // 怪物条目背景
+        if (killCount >= 1000) {
+            ctx.fillStyle = 'rgba(255, 68, 68, 0.1)';
+        } else if (killCount >= 100) {
+            ctx.fillStyle = 'rgba(68, 255, 68, 0.1)';
+        } else if (killCount >= 10) {
+            ctx.fillStyle = 'rgba(68, 68, 255, 0.1)';
+        } else {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+        }
+        ctx.fillRect(x - 2, y - 15, itemWidth - 5, 18);
+        
+        // 怪物名称
+        ctx.fillStyle = getMonsterColor(type);
+        ctx.font = 'bold 12px Arial';
+        ctx.textAlign = 'left';
+        const displayName = getMonsterDisplayName(type);
+        ctx.fillText(`${displayName}:`, x, y);
+        
+        // 绘制击杀数量点
+        drawKillCountDots(ctx, x + 60, y - 8, killCount);
+        
+        // 显示具体数字
+        ctx.fillStyle = '#AAAAAA';
+        ctx.font = '10px Arial';
+        ctx.fillText(killCount.toString(), x + 110, y);
+    });
+}
+
+// 绘制击杀数量点
+function drawKillCountDots(ctx, x, y, killCount) {
+    const dotSize = 4;
+    const dotSpacing = 10;
+    let currentX = x;
+    
+    // 计算各种点的数量
+    const goldDots = Math.floor(killCount / 10000); // 金色点：10000个
+    const redDots = Math.floor((killCount % 10000) / 1000); // 红色点：1000个
+    const greenDots = Math.floor((killCount % 1000) / 100); // 绿色点：100个
+    const blueDots = Math.floor((killCount % 100) / 10); // 蓝色点：10个
+    
+    // 绘制金色点（10000个）- 带发光效果
+    if (goldDots > 0) {
+        ctx.shadowColor = '#FFD700';
+        ctx.shadowBlur = 8;
+        ctx.fillStyle = '#FFD700';
+        for (let i = 0; i < goldDots && i < 10; i++) {
+            ctx.beginPath();
+            ctx.arc(currentX, y, dotSize, 0, Math.PI * 2);
+            ctx.fill();
+            // 内部高光
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#FFFF88';
+            ctx.beginPath();
+            ctx.arc(currentX - 1, y - 1, dotSize * 0.4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#FFD700';
+            ctx.shadowBlur = 8;
+            currentX += dotSpacing;
+        }
+        ctx.shadowBlur = 0;
+    }
+    
+    // 绘制红色点（1000个）- 带发光效果
+    if (redDots > 0) {
+        ctx.shadowColor = '#FF4444';
+        ctx.shadowBlur = 6;
+        ctx.fillStyle = '#FF4444';
+        for (let i = 0; i < redDots && i < 10; i++) {
+            ctx.beginPath();
+            ctx.arc(currentX, y, dotSize * 0.9, 0, Math.PI * 2);
+            ctx.fill();
+            // 内部高光
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#FF8888';
+            ctx.beginPath();
+            ctx.arc(currentX - 0.5, y - 0.5, dotSize * 0.3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#FF4444';
+            ctx.shadowBlur = 6;
+            currentX += dotSpacing;
+        }
+        ctx.shadowBlur = 0;
+    }
+    
+    // 绘制绿色点（100个）- 带轻微发光
+    if (greenDots > 0) {
+        ctx.shadowColor = '#44FF44';
+        ctx.shadowBlur = 4;
+        ctx.fillStyle = '#44FF44';
+        for (let i = 0; i < greenDots && i < 10; i++) {
+            ctx.beginPath();
+            ctx.arc(currentX, y, dotSize * 0.8, 0, Math.PI * 2);
+            ctx.fill();
+            // 内部高光
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#88FF88';
+            ctx.beginPath();
+            ctx.arc(currentX - 0.5, y - 0.5, dotSize * 0.25, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#44FF44';
+            ctx.shadowBlur = 4;
+            currentX += dotSpacing;
+        }
+        ctx.shadowBlur = 0;
+    }
+    
+    // 绘制蓝色点（10个）- 带轻微发光
+    if (blueDots > 0) {
+        ctx.shadowColor = '#4444FF';
+        ctx.shadowBlur = 3;
+        ctx.fillStyle = '#4444FF';
+        for (let i = 0; i < blueDots && i < 10; i++) {
+            ctx.beginPath();
+            ctx.arc(currentX, y, dotSize * 0.7, 0, Math.PI * 2);
+            ctx.fill();
+            // 内部高光
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#8888FF';
+            ctx.beginPath();
+            ctx.arc(currentX - 0.3, y - 0.3, dotSize * 0.2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#4444FF';
+            ctx.shadowBlur = 3;
+            currentX += dotSpacing;
+        }
+        ctx.shadowBlur = 0;
+    }
+}
+
+// 绘制主角附近的动态分数显示
+// 分数显示实例管理系统
+if (!window.scoreDisplayInstances) {
+    window.scoreDisplayInstances = {
+        instances: [],
+        lastScore: 0,
+        lastUpdateTime: 0
+    };
+}
+
+function drawAnimatedScore() {
+    const ctx = game.ctx;
+    
+    if (!game.player) return;
+    
+    const currentTime = performance.now();
+    const displaySystem = window.scoreDisplayInstances;
+    
+    // 检测分数变动（限制更新频率，避免太快）
+    const timeSinceLastUpdate = currentTime - displaySystem.lastUpdateTime;
+    if (game.score !== displaySystem.lastScore && timeSinceLastUpdate > 300) { // 至少间隔300ms
+        // 创建新的分数显示实例
+        const playerScreenX = game.player.x - game.camera.x;
+        const playerScreenY = game.player.y - game.camera.y;
+        
+        // 随机位置偏移（在主角附近区域）
+        const randomX = (Math.random() - 0.5) * 120; // ±60px范围
+        const randomY = (Math.random() - 0.5) * 80 - 80; // 主要在上方
+        
+        const newInstance = {
+            score: game.score,
+            x: playerScreenX + randomX,
+            y: playerScreenY + randomY,
+            createTime: currentTime,
+            size: 32 + Math.random() * 8, // 随机大小 32-40px，更大字体
+            alpha: 1.0,
+            color: `hsl(${45 + Math.random() * 30}, 100%, ${60 + Math.random() * 20}%)` // 随机金色调
+        };
+        
+        displaySystem.instances.push(newInstance);
+        displaySystem.lastScore = game.score;
+        displaySystem.lastUpdateTime = currentTime;
+        
+        // 限制实例数量，移除过多的旧实例
+        if (displaySystem.instances.length > 2) {
+            displaySystem.instances.shift();
+        }
+    }
+    
+    // 绘制所有分数实例
+    displaySystem.instances.forEach((instance, index) => {
+        const age = currentTime - instance.createTime;
+        const maxAge = 1200; // 1.2秒生命周期，更快淡出
+        
+        if (age > maxAge) {
+            // 标记为待删除
+            instance.toDelete = true;
+            return;
+        }
+        
+        // 计算透明度衰减
+        const fadeStart = maxAge * 0.3; // 30%时开始淡出，更快淡出
+        if (age > fadeStart) {
+            instance.alpha = 1 - (age - fadeStart) / (maxAge - fadeStart);
+        }
+        
+        // 轻微的浮动效果（不是抖动）
+        const floatOffset = Math.sin((currentTime + index * 1000) * 0.003) * 8;
+        
+        // 保存状态
+        ctx.save();
+        
+        // 设置透明度
+        ctx.globalAlpha = instance.alpha;
+        
+        // 移动到分数位置
+        ctx.translate(instance.x, instance.y + floatOffset);
+        
+        // 绘制分数文字（无背景）
+        ctx.fillStyle = instance.color;
+        ctx.font = `bold ${instance.size}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        const scoreText = instance.score.toString();
+        ctx.fillText(scoreText, 0, 0);
+        
+        // 恢复状态
+        ctx.restore();
+    });
+    
+    // 清理已过期的实例
+    displaySystem.instances = displaySystem.instances.filter(instance => !instance.toDelete);
+}
+
+// 绘制简略怪物击杀统计
+function drawSimpleKillStats() {
+    const ctx = game.ctx;
+    
+    if (!window.monsterStats) return;
+    
+    const stats = window.monsterStats;
+    const monsterTypes = Object.keys(stats.killedByType).filter(type => {
+        const killCount = stats.killedByType[type];
+        return killCount >= 10; // 只显示击杀数>=10的怪物（包含蓝色点）
+    });
+    
+    if (monsterTypes.length === 0) return;
+    
+    // 计算布局
+    const startX = 20;
+    const startY = game.gameHeight - 40;
+    const itemWidth = 80;
+    
+    // 绘制背景
+    const panelWidth = Math.min(monsterTypes.length * itemWidth + 20, game.gameWidth - 40);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.fillRect(10, startY - 25, panelWidth, 30);
+    ctx.strokeStyle = 'rgba(255, 215, 0, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(10, startY - 25, panelWidth, 30);
+    
+    // 绘制每种怪物的简略统计
+    monsterTypes.forEach((type, index) => {
+        const killCount = stats.killedByType[type];
+        const x = startX + index * itemWidth;
+        const y = startY;
+        
+        // 怪物名称
+        ctx.fillStyle = getMonsterColor(type);
+        ctx.font = 'bold 10px Arial';
+        ctx.textAlign = 'left';
+        const displayName = getMonsterDisplayName(type);
+        ctx.fillText(displayName, x, y - 8);
+        
+        // 绘制击杀数量点
+        drawKillCountDots(ctx, x, y, killCount);
+    });
+}
+
+// 获取怪物显示颜色
+function getMonsterColor(type) {
+    const colors = {
+        red: '#FF6B6B',
+        blue: '#4ECDC4',
+        white: '#FFFFFF',
+        black: '#888888',
+        largered: '#FF4444',
+        rotating: '#FF8C00',
+        teleport: '#9370DB',
+        snake: '#32CD32',
+        yellow: '#FFD700',
+        control: '#FF69B4',
+        elite: '#FFD700',
+        graviton: '#8A2BE2',
+        destroyer: '#DC143C',
+        guardian: '#4169E1',
+        vortex: '#00CED1'
+    };
+    return colors[type] || '#FFFFFF';
+}
+
+// 获取怪物显示名称
+function getMonsterDisplayName(type) {
+    const names = {
+        red: '红球',
+        blue: '蓝球',
+        white: '白球',
+        black: '黑球',
+        largered: '大红球',
+        rotating: '旋转球',
+        teleport: '传送球',
+        snake: '蛇形球',
+        yellow: '黄球',
+        control: '控制球',
+        elite: '精英球',
+        graviton: '引力球',
+        destroyer: '毁灭球',
+        guardian: '守护球',
+        vortex: '漩涡球'
+    };
+    return names[type] || type;
 }
 
 
@@ -1506,7 +2020,13 @@ window.renderFloatingTexts = renderFloatingTexts;
 window.renderAoeRings = renderAoeRings;
 window.renderCriticalDisplays = renderCriticalDisplays;
 window.drawUI = drawUI;
-// checkLevelUp函数在gameLogic.js中定义，这里不需要导出
+window.drawMonsterKillStats = drawMonsterKillStats;
+window.drawSimpleKillStats = drawSimpleKillStats;
+window.drawAnimatedScore = drawAnimatedScore;
+window.drawKillCountDots = drawKillCountDots;
+window.getMonsterColor = getMonsterColor;
+window.getMonsterDisplayName = getMonsterDisplayName;
+
 window.gameOver = gameOver;
 
 // 导出函数（用于模块化）
@@ -1530,6 +2050,12 @@ if (typeof module !== 'undefined' && module.exports) {
         renderAoeRings,
         renderCriticalDisplays,
         drawUI,
+        drawMonsterKillStats,
+        drawSimpleKillStats,
+        drawAnimatedScore,
+        drawKillCountDots,
+        getMonsterColor,
+        getMonsterDisplayName,
         // checkLevelUp在gameLogic.js中定义
         gameOver
     };

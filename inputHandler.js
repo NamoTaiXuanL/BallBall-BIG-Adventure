@@ -45,6 +45,12 @@ function handleKeyDown(e) {
         game.player.lastKeyPressTime[simpleKey] = performance.now();
     }
     
+    // ~键切换统计界面显示
+    if (key === '`' || key === '~') {
+        if (!game.ui) game.ui = {};
+        game.ui.showDetailedStats = !game.ui.showDetailedStats;
+    }
+    
     // X键激活风火轮技能
     if (key === 'x' && game.player.rage >= 15 && !game.player.windFireWheels.active) {
         activateWindFireWheels();
@@ -656,6 +662,9 @@ function handlePlayerAttack() {
     
     // 检查天雨散花技能触发条件
     const nearbyEnemyCount = game.enemies.filter(enemy => {
+        if (!enemy || enemy.x === undefined || enemy.y === undefined) {
+            return false;
+        }
         const dx = enemy.x - game.player.x;
         const dy = enemy.y - game.player.y;
         const dist = Math.sqrt(dx * dx + dy * dy);

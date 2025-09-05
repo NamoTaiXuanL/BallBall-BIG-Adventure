@@ -127,3 +127,54 @@
 #### index.html
 - `init()` - 新增buff系统初始化
   - 新增功能: 创建game.buffSystem实例
+
+---
+
+## 修改的函数 (v3.9.3 - 狂潮模式修复)
+
+### gameLogic.js
+- `updateFrenzyMode()` - 狂潮模式更新逻辑
+  - 参数: 无
+  - 返回值: 无
+  - 功能: 更新狂潮模式状态，处理激活条件、持续时间和冷却
+  - 修改内容: 将触发条件从15个敌人降低到8个敌人，使狂潮模式更容易激活
+  - 触发条件: 8个或以上敌人在500像素范围内
+  - 持续时间: 5秒
+  - 冷却时间: 15秒
+
+---
+
+## 新增函数 (v3.9.4 - 日炎buff系统)
+
+### buffSystem.js
+- `BuffSystem.prototype.initSolarFlare(buff)` - 初始化日炎buff
+  - 参数: `buff` (object) - buff对象
+  - 返回值: 无
+  - 功能: 初始化日炎buff的红光闪烁、灼烧光环和伤害参数
+
+- `BuffSystem.prototype.updateSolarFlare(buff, deltaTime)` - 更新日炎buff效果
+  - 参数: `buff` (object) - buff对象, `deltaTime` (number) - 时间增量
+  - 返回值: 无
+  - 功能: 更新红光闪烁效果和灼烧光环半径，处理灼烧伤害计时
+
+- `BuffSystem.prototype.processBurnDamage(buff)` - 处理灼烧伤害
+  - 参数: `buff` (object) - buff对象
+  - 返回值: 无
+  - 功能: 对范围内敌人造成灼烧伤害，创建伤害数字和粒子效果
+
+- `BuffSystem.prototype.getSolarFlareAura()` - 获取日炎光环信息
+  - 参数: 无
+  - 返回值: object - 包含位置、半径、强度等光环信息
+  - 功能: 为渲染系统提供日炎buff的光环数据
+
+### 修改的现有函数
+
+#### gameLogic.js
+- `handleEnemyDeath(enemy, index)` - 新增日炎buff掉落逻辑
+  - 新增功能: 3%概率掉落日炎buff，精英怪2.5倍概率，Boss 4倍概率
+  - 新增功能: 根据掉落的buff类型显示相应的浮动提示文本
+
+#### render.js
+- `renderPlayer(ctx)` - 新增日炎buff视觉效果
+  - 新增功能: 红光闪烁效果、灼烧光环渲染、红色粒子效果
+  - 新增功能: 玩家主体红光色调混合和红色边框效果
