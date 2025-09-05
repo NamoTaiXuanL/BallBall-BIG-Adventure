@@ -708,20 +708,46 @@ function handlePlayerAttack() {
             dy: -2
         });
     } else {
-        // 普通射击
-        const projectile = {
-            x: game.player.x,
-            y: game.player.y,
-            dx: Math.cos(angle) * 10,
-            dy: Math.sin(angle) * 10,
-            radius: 8,
-            damage: game.player.attackPower,
-            owner: 'player',
-            lifetime: Math.min(120, Math.floor(distance / 8) + 30),
-            active: true
-        };
+        // 检查三相之力buff是否激活
+        const hasTrinityForce = game.buffSystem && game.buffSystem.isBuffActive('trinityForce');
         
-        game.projectiles.push(projectile);
+        if (hasTrinityForce) {
+            // 三相之力：发射三股子弹（中间一股 + 左右各偏转30度）
+            const angles = [angle, angle - Math.PI / 6, angle + Math.PI / 6]; // 0度、-30度、+30度
+            
+            for (let i = 0; i < angles.length; i++) {
+                const bulletAngle = angles[i];
+                const projectile = {
+                    x: game.player.x,
+                    y: game.player.y,
+                    dx: Math.cos(bulletAngle) * 10,
+                    dy: Math.sin(bulletAngle) * 10,
+                    radius: 8,
+                    damage: game.player.attackPower,
+                    owner: 'player',
+                    lifetime: Math.min(120, Math.floor(distance / 8) + 30),
+                    active: true,
+                    isTrinityForce: true
+                };
+                
+                game.projectiles.push(projectile);
+            }
+        } else {
+            // 普通射击
+            const projectile = {
+                x: game.player.x,
+                y: game.player.y,
+                dx: Math.cos(angle) * 10,
+                dy: Math.sin(angle) * 10,
+                radius: 8,
+                damage: game.player.attackPower,
+                owner: 'player',
+                lifetime: Math.min(120, Math.floor(distance / 8) + 30),
+                active: true
+            };
+            
+            game.projectiles.push(projectile);
+        }
     }
     
     // 射击后坐力效果

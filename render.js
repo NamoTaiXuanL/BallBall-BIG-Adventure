@@ -835,21 +835,84 @@ function renderPlayer(ctx) {
     // 重置透明度
     ctx.globalAlpha = 1.0;
     
-    // 玩家主体
-    ctx.fillStyle = config.colors.player;
-    ctx.beginPath();
-    ctx.arc(game.player.x, game.player.y, game.player.radius, 0, Math.PI * 2);
-    ctx.fill();
+    // 检查三相之力buff是否激活
+    const hasTrinityForce = game.buffSystem && game.buffSystem.isBuffActive('trinityForce');
     
-    // 玩家边框
-    ctx.strokeStyle = '#1976D2';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(game.player.x, game.player.y, game.player.radius, 0, Math.PI * 2);
-    ctx.stroke();
+    if (hasTrinityForce) {
+        // 三相之力金光闪烁效果
+        const time = performance.now() * 0.01;
+        const glowIntensity = Math.sin(time * 2) * 0.3 + 0.7; // 0.4-1.0之间闪烁
+        
+        // 外层金光光晕
+        const glowRadius = game.player.radius + 8;
+        const gradient = ctx.createRadialGradient(
+            game.player.x, game.player.y, game.player.radius,
+            game.player.x, game.player.y, glowRadius
+        );
+        gradient.addColorStop(0, `rgba(255, 215, 0, ${glowIntensity * 0.8})`);
+        gradient.addColorStop(0.7, `rgba(255, 215, 0, ${glowIntensity * 0.4})`);
+        gradient.addColorStop(1, 'rgba(255, 215, 0, 0)');
+        
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(game.player.x, game.player.y, glowRadius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 玩家主体（带金光色调）
+        const playerColor = config.colors.player;
+        const r = parseInt(playerColor.slice(1, 3), 16);
+        const g = parseInt(playerColor.slice(3, 5), 16);
+        const b = parseInt(playerColor.slice(5, 7), 16);
+        
+        // 混合金色
+        const goldR = Math.min(255, r + 100 * glowIntensity);
+        const goldG = Math.min(255, g + 80 * glowIntensity);
+        const goldB = Math.max(0, b - 20 * glowIntensity);
+        
+        ctx.fillStyle = `rgb(${Math.floor(goldR)}, ${Math.floor(goldG)}, ${Math.floor(goldB)})`;
+        ctx.beginPath();
+        ctx.arc(game.player.x, game.player.y, game.player.radius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 金色边框
+        ctx.strokeStyle = `rgba(255, 215, 0, ${glowIntensity})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(game.player.x, game.player.y, game.player.radius, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // 内层金光粒子效果
+        for (let i = 0; i < 6; i++) {
+            const angle = time + (i * Math.PI / 3);
+            const distance = game.player.radius * 0.6;
+            const particleX = game.player.x + Math.cos(angle) * distance;
+            const particleY = game.player.y + Math.sin(angle) * distance;
+            
+            ctx.fillStyle = `rgba(255, 255, 255, ${glowIntensity * 0.8})`;
+            ctx.beginPath();
+            ctx.arc(particleX, particleY, 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    } else {
+        // 普通玩家主体
+        ctx.fillStyle = config.colors.player;
+        ctx.beginPath();
+        ctx.arc(game.player.x, game.player.y, game.player.radius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // 玩家边框
+        ctx.strokeStyle = '#1976D2';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(game.player.x, game.player.y, game.player.radius, 0, Math.PI * 2);
+        ctx.stroke();
+    }
     
     // 风火轮效果
     if (game.player.windFireWheels.active && game.player.windFireWheels.orbs) {
+        // 检测三相之力buff状态
+        const hasTrinityForce = game.buffSystem && game.buffSystem.isBuffActive('trinityForce');
+        
         ctx.fillStyle = '#FF4081';
         ctx.strokeStyle = '#FF0000'; // 红色线段
         ctx.shadowColor = '#FF4081';
@@ -859,23 +922,31 @@ function renderPlayer(ctx) {
         // 存储圆圈位置用于连线
         const orbPositions = [];
         
+        // 根据三相之力状态调整风火轮数量和排列
+        const wheelCount = hasTrinityForce ? 3 : 4;
+        const angleStep = hasTrinityForce ? (2 * Math.PI / 3) : (Math.PI / 2);
+        
+        // 三相之力状态下增大风火轮半径和球体尺寸
+        const wheelRadius = hasTrinityForce ? game.player.windFireWheels.radius * 1.5 : game.player.windFireWheels.radius;
+        const orbSize = hasTrinityForce ? game.player.windFireWheels.orbSize * 3 : game.player.windFireWheels.orbSize * 2;
+        
         // 绘制圆圈
-        for (let i = 0; i < 4; i++) {
-            const angle = game.player.windFireWheels.rotation + (i * Math.PI / 2);
-            const orbX = game.player.x + Math.cos(angle) * game.player.windFireWheels.radius;
-            const orbY = game.player.y + Math.sin(angle) * game.player.windFireWheels.radius;
+        for (let i = 0; i < wheelCount; i++) {
+            const angle = game.player.windFireWheels.rotation + (i * angleStep);
+            const orbX = game.player.x + Math.cos(angle) * wheelRadius;
+            const orbY = game.player.y + Math.sin(angle) * wheelRadius;
             
             orbPositions.push({x: orbX, y: orbY});
             
             ctx.beginPath();
-            ctx.arc(orbX, orbY, game.player.windFireWheels.orbSize * 2, 0, Math.PI * 2); // 尺寸增大一倍
+            ctx.arc(orbX, orbY, orbSize, 0, Math.PI * 2);
             ctx.fill();
         }
         
         // 绘制连接线段
         ctx.shadowBlur = 0;
-        for (let i = 0; i < 4; i++) {
-            const nextIndex = (i + 1) % 4;
+        for (let i = 0; i < wheelCount; i++) {
+            const nextIndex = (i + 1) % wheelCount;
             ctx.beginPath();
             ctx.moveTo(orbPositions[i].x, orbPositions[i].y);
             ctx.lineTo(orbPositions[nextIndex].x, orbPositions[nextIndex].y);
@@ -885,30 +956,53 @@ function renderPlayer(ctx) {
     
     // 激光效果
     if (game.player.laser.active) {
-        // 绘制激光主体
-        ctx.strokeStyle = '#00FFFF';
-        ctx.lineWidth = game.player.laser.width;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(game.player.laser.startX, game.player.laser.startY);
-        ctx.lineTo(game.player.laser.endX, game.player.laser.endY);
-        ctx.stroke();
+        // 检测三相之力buff状态
+        const hasTrinityForce = game.buffSystem && game.buffSystem.isBuffActive('trinityForce');
         
-        // 绘制激光发光效果
-        ctx.strokeStyle = 'rgba(0, 255, 255, 0.3)';
-        ctx.lineWidth = game.player.laser.width * 3;
-        ctx.beginPath();
-        ctx.moveTo(game.player.laser.startX, game.player.laser.startY);
-        ctx.lineTo(game.player.laser.endX, game.player.laser.endY);
-        ctx.stroke();
+        // 定义要绘制的激光束
+        const laserBeams = [];
         
-        // 绘制激光核心
-        ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = game.player.laser.width * 0.3;
-        ctx.beginPath();
-        ctx.moveTo(game.player.laser.startX, game.player.laser.startY);
-        ctx.lineTo(game.player.laser.endX, game.player.laser.endY);
-        ctx.stroke();
+        if (hasTrinityForce) {
+            // 三股激光
+            laserBeams.push(
+                { startX: game.player.laser.startX, startY: game.player.laser.startY, endX: game.player.laser.endX, endY: game.player.laser.endY }, // 中间
+                { startX: game.player.laser.startX, startY: game.player.laser.startY, endX: game.player.laser.leftEndX, endY: game.player.laser.leftEndY }, // 左侧
+                { startX: game.player.laser.startX, startY: game.player.laser.startY, endX: game.player.laser.rightEndX, endY: game.player.laser.rightEndY } // 右侧
+            );
+        } else {
+            // 单股激光
+            laserBeams.push(
+                { startX: game.player.laser.startX, startY: game.player.laser.startY, endX: game.player.laser.endX, endY: game.player.laser.endY }
+            );
+        }
+        
+        // 绘制所有激光束
+        for (const beam of laserBeams) {
+            // 绘制激光主体
+            ctx.strokeStyle = '#00FFFF';
+            ctx.lineWidth = game.player.laser.width;
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(beam.startX, beam.startY);
+            ctx.lineTo(beam.endX, beam.endY);
+            ctx.stroke();
+            
+            // 绘制激光发光效果
+            ctx.strokeStyle = 'rgba(0, 255, 255, 0.3)';
+            ctx.lineWidth = game.player.laser.width * 3;
+            ctx.beginPath();
+            ctx.moveTo(beam.startX, beam.startY);
+            ctx.lineTo(beam.endX, beam.endY);
+            ctx.stroke();
+            
+            // 绘制激光核心
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = game.player.laser.width * 0.3;
+            ctx.beginPath();
+            ctx.moveTo(beam.startX, beam.startY);
+            ctx.lineTo(beam.endX, beam.endY);
+            ctx.stroke();
+        }
     }
 }
 

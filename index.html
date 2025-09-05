@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>球球大冒险 v3.8.0</title>
+    <title>球球大冒险 v3.9.3</title>
     <style>
         body {
             margin: 0;
@@ -18,10 +18,11 @@
     <canvas id="gameCanvas"></canvas>
     
     <!-- 引入模块文件 -->
-    <script src="utils.js?v=3.8.0"></script>
-            <script src="inputHandler.js?v=3.8.0"></script>
-            <script src="gameLogic.js?v=3.8.0"></script>
-            <script src="render.js?v=3.8.0"></script>
+    <script src="utils.js?v=3.9.3"></script>
+            <script src="inputHandler.js?v=3.9.3"></script>
+            <script src="buffSystem.js?v=3.9.3"></script>
+            <script src="gameLogic.js?v=3.9.3"></script>
+            <script src="render.js?v=3.9.3"></script>
     
     <script>
         // 游戏配置
@@ -383,6 +384,11 @@
             
             // 初始化输入处理
             initInputHandlers(game, config);
+            
+            // 初始化buff系统
+            if (window.BuffSystem) {
+                game.buffSystem = new window.BuffSystem(game);
+            }
             
             // 生成初始平台和所有地图元素
             generateInitialPlatforms();

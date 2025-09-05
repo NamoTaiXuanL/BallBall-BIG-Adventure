@@ -466,6 +466,11 @@ function update() {
     // 更新游戏对象 - 使用inputHandler中的敌人更新逻辑
     updateGameObjectsWithInputHandler();
     
+    // 更新buff系统
+    if (game.buffSystem && game.buffSystem.update) {
+        game.buffSystem.update();
+    }
+    
     // 检查玩家升级
     checkLevelUp();
 }
@@ -1094,9 +1099,16 @@ function updateWindFireWheels() {
     // 更新旋转角度
     game.player.windFireWheels.rotation += game.player.windFireWheels.rotationSpeed;
     
+    // 检查是否有三相之力buff
+    const hasTrinityForce = game.buffSystem && game.buffSystem.isBuffActive('trinityForce');
+    
+    // 根据buff状态决定风火轮数量和排列
+    const wheelCount = hasTrinityForce ? 3 : 4;
+    const angleStep = hasTrinityForce ? (Math.PI * 2 / 3) : (Math.PI / 2); // 三角形或正方形
+    
     // 检测与敌人的碰撞
-    for (let i = 0; i < 4; i++) {
-        const angle = game.player.windFireWheels.rotation + (i * Math.PI / 2);
+    for (let i = 0; i < wheelCount; i++) {
+        const angle = game.player.windFireWheels.rotation + (i * angleStep);
         const orbX = game.player.x + Math.cos(angle) * game.player.windFireWheels.radius;
         const orbY = game.player.y + Math.sin(angle) * game.player.windFireWheels.radius;
         
@@ -1139,8 +1151,8 @@ function updateWindFireWheels() {
     // 生成风火轮粒子效果
     if (Math.random() < 0.3) {
         const angle = game.player.windFireWheels.rotation;
-        for (let i = 0; i < 4; i++) {
-            const wheelAngle = angle + (i * Math.PI / 2);
+        for (let i = 0; i < wheelCount; i++) {
+            const wheelAngle = angle + (i * angleStep);
             const wheelX = game.player.x + Math.cos(wheelAngle) * game.player.windFireWheels.radius;
             const wheelY = game.player.y + Math.sin(wheelAngle) * game.player.windFireWheels.radius;
             
@@ -1229,8 +1241,39 @@ function activateLaser() {
         const normalizedDx = dx / distance;
         const normalizedDy = dy / distance;
         
-        game.player.laser.endX = game.player.x + normalizedDx * game.player.laser.range;
-        game.player.laser.endY = game.player.y + normalizedDy * game.player.laser.range;
+        // 检查是否有三相之力buff
+        const hasTrinityForce = game.buffSystem && game.buffSystem.isBuffActive('trinityForce');
+        
+        if (hasTrinityForce) {
+            // 三股激光：中间一股 + 左右各一股（角度偏移30度）
+            game.player.laser.beams = [];
+            const angleOffset = Math.PI / 6; // 30度
+            
+            // 中间激光
+            game.player.laser.beams.push({
+                endX: game.player.x + normalizedDx * game.player.laser.range,
+                endY: game.player.y + normalizedDy * game.player.laser.range
+            });
+            
+            // 左侧激光
+            const leftAngle = Math.atan2(normalizedDy, normalizedDx) - angleOffset;
+            game.player.laser.beams.push({
+                endX: game.player.x + Math.cos(leftAngle) * game.player.laser.range,
+                endY: game.player.y + Math.sin(leftAngle) * game.player.laser.range
+            });
+            
+            // 右侧激光
+            const rightAngle = Math.atan2(normalizedDy, normalizedDx) + angleOffset;
+            game.player.laser.beams.push({
+                endX: game.player.x + Math.cos(rightAngle) * game.player.laser.range,
+                endY: game.player.y + Math.sin(rightAngle) * game.player.laser.range
+            });
+        } else {
+            // 单股激光
+            game.player.laser.endX = game.player.x + normalizedDx * game.player.laser.range;
+            game.player.laser.endY = game.player.y + normalizedDy * game.player.laser.range;
+            game.player.laser.beams = null;
+        }
     }
 }
 
@@ -1270,8 +1313,32 @@ function updateLaser() {
         const normalizedDx = dx / distance;
         const normalizedDy = dy / distance;
         
-        game.player.laser.endX = game.player.x + normalizedDx * game.player.laser.range;
-        game.player.laser.endY = game.player.y + normalizedDy * game.player.laser.range;
+        // 检查是否有三相之力buff
+        const hasTrinityForce = game.buffSystem && game.buffSystem.isBuffActive('trinityForce');
+        
+        if (hasTrinityForce) {
+            // 三股激光：中间一股 + 左右各偏转30度
+            const angle = Math.atan2(normalizedDy, normalizedDx);
+            const angleOffset = Math.PI / 6; // 30度
+            
+            // 中间激光
+            game.player.laser.endX = game.player.x + normalizedDx * game.player.laser.range;
+            game.player.laser.endY = game.player.y + normalizedDy * game.player.laser.range;
+            
+            // 左侧激光
+            const leftAngle = angle - angleOffset;
+            game.player.laser.leftEndX = game.player.x + Math.cos(leftAngle) * game.player.laser.range;
+            game.player.laser.leftEndY = game.player.y + Math.sin(leftAngle) * game.player.laser.range;
+            
+            // 右侧激光
+            const rightAngle = angle + angleOffset;
+            game.player.laser.rightEndX = game.player.x + Math.cos(rightAngle) * game.player.laser.range;
+            game.player.laser.rightEndY = game.player.y + Math.sin(rightAngle) * game.player.laser.range;
+        } else {
+            // 单股激光
+            game.player.laser.endX = game.player.x + normalizedDx * game.player.laser.range;
+            game.player.laser.endY = game.player.y + normalizedDy * game.player.laser.range;
+        }
     }
     
     // 检测激光与敌人的碰撞
@@ -1283,25 +1350,75 @@ function updateLaser() {
             enemy.laserDamageTimer = 0;
         }
         
-        // 计算点到线段的距离
-        const laserLength = Math.sqrt(
-            (game.player.laser.endX - game.player.laser.startX) ** 2 + 
-            (game.player.laser.endY - game.player.laser.startY) ** 2
-        );
+        let hitByLaser = false;
         
-        if (laserLength === 0) continue;
+        // 检查是否有三相之力buff
+        const hasTrinityForce = game.buffSystem && game.buffSystem.isBuffActive('trinityForce');
         
-        const t = Math.max(0, Math.min(1, 
-            ((enemy.x - game.player.laser.startX) * (game.player.laser.endX - game.player.laser.startX) + 
-             (enemy.y - game.player.laser.startY) * (game.player.laser.endY - game.player.laser.startY)) / (laserLength ** 2)
-        ));
+        // 定义碰撞点坐标变量
+        let closestX = enemy.x;
+        let closestY = enemy.y;
         
-        const closestX = game.player.laser.startX + t * (game.player.laser.endX - game.player.laser.startX);
-        const closestY = game.player.laser.startY + t * (game.player.laser.endY - game.player.laser.startY);
+        if (hasTrinityForce) {
+            // 检测三股激光的碰撞
+            const lasers = [
+                { startX: game.player.laser.startX, startY: game.player.laser.startY, endX: game.player.laser.endX, endY: game.player.laser.endY },
+                { startX: game.player.laser.startX, startY: game.player.laser.startY, endX: game.player.laser.leftEndX, endY: game.player.laser.leftEndY },
+                { startX: game.player.laser.startX, startY: game.player.laser.startY, endX: game.player.laser.rightEndX, endY: game.player.laser.rightEndY }
+            ];
+            
+            for (const laser of lasers) {
+                const laserLength = Math.sqrt(
+                    (laser.endX - laser.startX) ** 2 + 
+                    (laser.endY - laser.startY) ** 2
+                );
+                
+                if (laserLength === 0) continue;
+                
+                const t = Math.max(0, Math.min(1, 
+                    ((enemy.x - laser.startX) * (laser.endX - laser.startX) + 
+                     (enemy.y - laser.startY) * (laser.endY - laser.startY)) / (laserLength ** 2)
+                ));
+                
+                const laserClosestX = laser.startX + t * (laser.endX - laser.startX);
+                const laserClosestY = laser.startY + t * (laser.endY - laser.startY);
+                
+                const distanceToLaser = Math.sqrt((enemy.x - laserClosestX) ** 2 + (enemy.y - laserClosestY) ** 2);
+                
+                if (distanceToLaser < enemy.radius + game.player.laser.width / 2) {
+                    hitByLaser = true;
+                    closestX = laserClosestX;
+                    closestY = laserClosestY;
+                    break;
+                }
+            }
+        } else {
+            // 单股激光碰撞检测
+            const laserLength = Math.sqrt(
+                (game.player.laser.endX - game.player.laser.startX) ** 2 + 
+                (game.player.laser.endY - game.player.laser.startY) ** 2
+            );
+            
+            if (laserLength > 0) {
+                const t = Math.max(0, Math.min(1, 
+                    ((enemy.x - game.player.laser.startX) * (game.player.laser.endX - game.player.laser.startX) + 
+                     (enemy.y - game.player.laser.startY) * (game.player.laser.endY - game.player.laser.startY)) / (laserLength ** 2)
+                ));
+                
+                const laserClosestX = game.player.laser.startX + t * (game.player.laser.endX - game.player.laser.startX);
+                const laserClosestY = game.player.laser.startY + t * (game.player.laser.endY - game.player.laser.startY);
+                
+                const distanceToLaser = Math.sqrt((enemy.x - laserClosestX) ** 2 + (enemy.y - laserClosestY) ** 2);
+                
+                if (distanceToLaser < enemy.radius + game.player.laser.width / 2) {
+                    hitByLaser = true;
+                    closestX = laserClosestX;
+                    closestY = laserClosestY;
+                }
+            }
+        }
         
-        const distanceToLaser = Math.sqrt((enemy.x - closestX) ** 2 + (enemy.y - closestY) ** 2);
-        
-        if (distanceToLaser < enemy.radius + game.player.laser.width / 2) {
+        if (hitByLaser) {
             // 更新敌人的激光伤害计时器
             enemy.laserDamageTimer++;
             
@@ -1891,6 +2008,15 @@ function handleEnemyDeath(enemy, index) {
     // 精英怪物子类型击杀统计
     if (enemy.type === 'elite' && enemy.eliteType && monsterStats.killedByType[enemy.eliteType] !== undefined) {
         monsterStats.killedByType[enemy.eliteType]++;
+    }
+    
+    // 检查buff掉落 - 三相之力
+    if (game.buffSystem && game.buffSystem.checkBuffDrop) {
+        const buffDropped = game.buffSystem.checkBuffDrop(enemy.type);
+        if (buffDropped) {
+            // 创建buff获得提示
+            createFloatingText(enemy.x, enemy.y - 30, '三相之力!', '#FFD700', 120, 1.5);
+        }
     }
     
     // 经验和分数奖励
