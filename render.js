@@ -774,14 +774,41 @@ function renderEnemies(ctx, viewLeft, viewRight, viewTop, viewBottom) {
         }
     }
     
-    // 批量绘制所有敌人的血条
+    // 批量绘制所有敌人的血条 - 基于等级的视觉强化
     for (const enemyType in visibleEnemies) {
         for (const enemy of visibleEnemies[enemyType]) {
             const healthPercent = enemy.health / enemy.maxHealth;
+            const level = enemy.level || 1;
+            
+            // 根据等级调整血条厚度和颜色
+            const barHeight = Math.max(3, Math.min(8, 2 + level)); // 等级越高血条越厚
+            const barY = enemy.y - enemy.radius - 10 - (barHeight - 3); // 调整位置
+            
+            // 根据等级选择血条颜色
+            let healthBarColor = '#4CAF50'; // 默认绿色
+            if (level >= 10) {
+                healthBarColor = '#FF6B35'; // 高等级橙红色
+            } else if (level >= 5) {
+                healthBarColor = '#FFD700'; // 中等级金色
+            } else if (level >= 3) {
+                healthBarColor = '#00BCD4'; // 低等级青色
+            }
+            
+            // 背景条
             ctx.fillStyle = '#F44336';
-            ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 10, enemy.radius * 2, 3);
-            ctx.fillStyle = '#4CAF50';
-            ctx.fillRect(enemy.x - enemy.radius, enemy.y - enemy.radius - 10, enemy.radius * 2 * healthPercent, 3);
+            ctx.fillRect(enemy.x - enemy.radius, barY, enemy.radius * 2, barHeight);
+            
+            // 血量条
+            ctx.fillStyle = healthBarColor;
+            ctx.fillRect(enemy.x - enemy.radius, barY, enemy.radius * 2 * healthPercent, barHeight);
+            
+            // 高等级怪物添加发光效果
+            if (level >= 5) {
+                ctx.shadowColor = healthBarColor;
+                ctx.shadowBlur = 3;
+                ctx.fillRect(enemy.x - enemy.radius, barY, enemy.radius * 2 * healthPercent, barHeight);
+                ctx.shadowBlur = 0;
+            }
         }
      }
 }

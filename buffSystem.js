@@ -7,6 +7,18 @@ class BuffSystem {
         this.game = game;
         this.activeBuffs = new Map(); // 存储激活的buff
         this.buffDefinitions = this.initBuffDefinitions();
+        
+        // 调试日志记录
+        this.logger = window.debugLogger;
+        if (this.logger) {
+            this.logger.logGameState('BuffSystem初始化', {
+                buffDefinitions: Object.keys(this.buffDefinitions)
+            });
+        }
+        
+        // 自动激活等级强化buff
+        this.activateBuff('levelEnhancement');
+        console.log('[BuffSystem] levelEnhancement buff已自动激活');
     }
 
     // 初始化buff定义
@@ -36,6 +48,19 @@ class BuffSystem {
                     burnRadius: 600, // 灼烧范围(扩大5倍)
                     burnInterval: 500 // 灼烧间隔(毫秒)
                 }
+            },
+            levelEnhancement: {
+                id: 'levelEnhancement',
+                name: '等级强化',
+                duration: -1, // 永久buff，不会过期
+                dropChance: 0, // 不通过掉落获得
+                effects: {
+                    healthMultiplier: 3, // 血量倍数（指数增长基数）
+                    damageMultiplier: 1.0, // 攻击力每级增长倍数
+                    speedMultiplier: 0.5, // 速度每级增长倍数
+                    sizeMultiplier: 0.25, // 体积每级增长倍数
+                    rangeMultiplier: 0.5 // 范围每级增长倍数
+                }
             }
         };
     }
@@ -52,6 +77,10 @@ class BuffSystem {
         }
 
         if (Math.random() < trinityDropChance) {
+            // 激活三相之力时，停用日炎buff以避免范围秒杀
+            if (this.isBuffActive('solarFlare')) {
+                this.deactivateBuff('solarFlare');
+            }
             this.activateBuff('trinityForce');
             return true;
         }
@@ -66,6 +95,10 @@ class BuffSystem {
         }
 
         if (Math.random() < solarDropChance) {
+            // 激活日炎时，停用三相之力以避免范围秒杀
+            if (this.isBuffActive('trinityForce')) {
+                this.deactivateBuff('trinityForce');
+            }
             this.activateBuff('solarFlare');
             return true;
         }
@@ -75,8 +108,19 @@ class BuffSystem {
 
     // 激活buff
     activateBuff(buffId) {
+        if (this.logger) {
+            this.logger.logBuffActivation(`尝试激活buff: ${buffId}`);
+        }
+        
         const buffDef = this.buffDefinitions[buffId];
-        if (!buffDef) return false;
+        if (!buffDef) {
+            const errorMsg = `未找到buff定义: ${buffId}`;
+            console.error(errorMsg);
+            if (this.logger) {
+                this.logger.logError(errorMsg);
+            }
+            return false;
+        }
 
         const buff = {
             ...buffDef,
@@ -86,11 +130,27 @@ class BuffSystem {
 
         this.activeBuffs.set(buffId, buff);
         
+        if (this.logger) {
+            this.logger.logBuffActivation(`Buff实例已创建: ${buffId}`, {
+                buffData: buff,
+                activeBuffsCount: this.activeBuffs.size
+            });
+        }
+        
         // 根据buff类型执行特殊初始化
         if (buffId === 'trinityForce') {
             this.initTrinityForce(buff);
         } else if (buffId === 'solarFlare') {
             this.initSolarFlare(buff);
+        } else if (buffId === 'levelEnhancement') {
+            this.initLevelEnhancement(buff);
+        }
+        
+        if (this.logger) {
+            this.logger.logBuffActivation(`Buff激活完成: ${buffId}`, {
+                isActive: buff.isActive,
+                activeBuffsList: Array.from(this.activeBuffs.keys())
+            });
         }
 
         return true;
@@ -132,17 +192,56 @@ class BuffSystem {
         buff.burnTargets = new Set(); // 记录已被灼烧的敌人，避免重复伤害
     }
 
+    // 初始化等级强化buff
+    initLevelEnhancement(buff) {
+        // 等级强化是永久buff，不需要特殊初始化
+        // 所有逻辑在应用时处理
+        buff.isActive = true;
+        console.log('等级强化buff已激活');
+        
+        if (this.logger) {
+            this.logger.logBuffActivation('levelEnhancement初始化完成', {
+                buffId: buff.id,
+                isActive: buff.isActive,
+                effects: buff.effects,
+                isPermanent: buff.isPermanent,
+                startTime: buff.startTime
+            });
+        }
+    }
+
     // 更新buff状态
     update(deltaTime) {
         const currentTime = Date.now();
         
         // 检查并移除过期的buff
         for (const [buffId, buff] of this.activeBuffs) {
-            if (currentTime >= buff.endTime) {
+            // 永久buff（duration为-1）不会过期
+            if (buff.duration !== -1 && currentTime >= buff.endTime) {
+                if (this.logger) {
+                    this.logger.logBuffUpdate(`Buff过期: ${buffId}`, {
+                        duration: buff.duration,
+                        elapsed: currentTime - buff.startTime
+                    });
+                }
                 this.deactivateBuff(buffId);
             } else {
                 this.updateBuff(buffId, buff, deltaTime);
             }
+        }
+        
+        // 定期记录buff状态
+        if (this.logger && Math.random() < 0.01) { // 1%概率记录状态
+            this.logger.logBuffUpdate('Buff系统状态', {
+                activeBuffsCount: this.activeBuffs.size,
+                activeBuffsList: Array.from(this.activeBuffs.keys()),
+                buffStates: Array.from(this.activeBuffs.entries()).map(([id, buff]) => ({
+                    id,
+                    isActive: buff.isActive,
+                    isPermanent: buff.duration === -1,
+                    elapsed: currentTime - buff.startTime
+                }))
+            });
         }
     }
 
@@ -152,6 +251,8 @@ class BuffSystem {
             this.updateTrinityForce(buff, deltaTime);
         } else if (buffId === 'solarFlare') {
             this.updateSolarFlare(buff, deltaTime);
+        } else if (buffId === 'levelEnhancement') {
+            this.updateLevelEnhancement(buff, deltaTime);
         }
     }
 
@@ -200,6 +301,13 @@ class BuffSystem {
             this.processBurnDamage(buff);
             buff.lastBurnTime = currentTime;
         }
+    }
+
+    // 更新等级强化效果
+    updateLevelEnhancement(buff, deltaTime) {
+        // 等级强化是被动buff，不需要主动更新
+        // 所有逻辑在应用等级缩放时处理
+        buff.isActive = true;
     }
 
     // 处理灼烧伤害
@@ -328,6 +436,151 @@ class BuffSystem {
     // 清除所有buff
     clearAllBuffs() {
         this.activeBuffs.clear();
+    }
+
+    // 应用等级强化到怪物（替代gameLogic.js中的applyLevelScaling）
+    applyLevelScaling(enemy) {
+        if (this.logger) {
+            this.logger.logEnemyCreation(enemy);
+            this.logger.logBuffApplication('levelEnhancement开始应用', `${enemy.type}(${enemy.x},${enemy.y})`, {
+                level: enemy.level,
+                distanceFromSpawn: enemy.distanceFromSpawn,
+                originalHealth: enemy.health
+            });
+        }
+        
+        console.log(`[DEBUG] applyLevelScaling开始: 坐标(${enemy.x}, ${enemy.y}), level=${enemy.level}, distanceFromSpawn=${enemy.distanceFromSpawn}`);
+        
+        // 计算距离血量加成
+        this.applyDistanceHealthBonus(enemy);
+        
+        console.log(`[DEBUG] applyDistanceHealthBonus后: level=${enemy.level}, distanceFromSpawn=${enemy.distanceFromSpawn}`);
+        
+        if (!enemy.level || enemy.level < 1) {
+            const warningMsg = `等级无效，跳过强化: level=${enemy.level}`;
+            console.log(`[DEBUG] ${warningMsg}`);
+            if (this.logger) {
+                this.logger.logWarning(warningMsg, { enemy: enemy.type, level: enemy.level });
+            }
+            return;
+        }
+        
+        // 获取等级强化buff（已在构造函数中激活）
+        const buff = this.getBuff('levelEnhancement');
+        if (!buff || !buff.isActive) {
+            const errorMsg = 'levelEnhancement buff未激活！';
+            console.error(`[ERROR] ${errorMsg}`);
+            if (this.logger) {
+                this.logger.logError(errorMsg, {
+                    buffExists: !!buff,
+                    buffActive: buff ? buff.isActive : false,
+                    activeBuffs: Array.from(this.activeBuffs.keys())
+                });
+            }
+            return;
+        }
+        
+        if (this.logger) {
+            this.logger.logBuffApplication('levelEnhancement buff状态检查通过', enemy.type, {
+                buffId: buff.id,
+                isActive: buff.isActive,
+                effects: buff.effects
+            });
+        }
+        
+        console.log(`应用等级强化: 等级${enemy.level}, 原血量${enemy.health}`);
+        
+        const levelMultiplier = enemy.level;
+        const effects = buff.effects;
+        
+        // 记录强化前的状态
+        const beforeStats = {
+            health: enemy.health,
+            maxHealth: enemy.maxHealth,
+            damage: enemy.damage,
+            speed: enemy.speed,
+            radius: enemy.radius,
+            detectionRange: enemy.detectionRange,
+            chaseRange: enemy.chaseRange
+        };
+        
+        // 血量强化：指数增长，每级增加100%血量，更快增长
+        const healthMultiplier = 1 + (levelMultiplier - 1) * 1.0; // 每级增加100%
+        const originalHealth = enemy.health;
+        enemy.health *= healthMultiplier;
+        enemy.maxHealth = enemy.health;
+        
+        console.log(`血量强化: ${originalHealth} -> ${enemy.health} (倍数: ${healthMultiplier})`);
+        console.log(`[DEBUG] applyLevelScaling完成: level=${enemy.level}, distanceFromSpawn=${enemy.distanceFromSpawn}`);
+        
+        // 攻击力强化：每级增加5%攻击力（极平缓提升，避免秒杀玩家）
+        const damageMultiplier = 1 + (levelMultiplier - 1) * 0.05; // 从0.3降到0.05
+        enemy.damage *= damageMultiplier;
+        
+        // 移动速度强化：每级增加1%速度（极平缓提升）
+        const speedMultiplier = 1 + (levelMultiplier - 1) * 0.01; // 从0.1降到0.01
+        enemy.speed *= speedMultiplier;
+        
+        // 体积强化：每级增加15%体积（平缓提升）+ 随机性变化
+        const baseSizeMultiplier = 1 + (levelMultiplier - 1) * 0.15;
+        const randomSizeFactor = 0.7 + Math.random() * 0.6; // 0.7-1.3倍随机变化
+        const sizeMultiplier = baseSizeMultiplier * randomSizeFactor;
+        enemy.radius *= sizeMultiplier;
+        
+        // 检测和追击范围强化：每级增加25%范围（平缓提升）
+        const rangeMultiplier = 1 + (levelMultiplier - 1) * 0.25;
+        enemy.detectionRange *= rangeMultiplier;
+        enemy.chaseRange *= rangeMultiplier;
+        
+        // 记录强化后的状态
+        const afterStats = {
+            health: enemy.health,
+            maxHealth: enemy.maxHealth,
+            damage: enemy.damage,
+            speed: enemy.speed,
+            radius: enemy.radius,
+            detectionRange: enemy.detectionRange,
+            chaseRange: enemy.chaseRange
+        };
+        
+        if (this.logger) {
+            this.logger.logEnemyLevelScaling(enemy, beforeStats, afterStats);
+            this.logger.logBuffApplication('levelEnhancement应用完成', enemy.type, {
+                level: enemy.level,
+                healthMultiplier,
+                damageMultiplier,
+                speedMultiplier,
+                sizeMultiplier,
+                rangeMultiplier,
+                beforeStats,
+                afterStats
+            });
+        }
+    }
+    
+    // 基于距离的血量加成：距离30000增加300血量，线性增长
+    applyDistanceHealthBonus(enemy) {
+        if (!enemy.x || !enemy.y) return;
+        
+        // 确保enemy有distanceFromSpawn属性，如果没有则计算
+        if (!enemy.distanceFromSpawn) {
+            enemy.distanceFromSpawn = Math.sqrt(enemy.x ** 2 + enemy.y ** 2);
+        }
+        
+        // 确保enemy有level属性，如果没有则基于距离计算
+        if (!enemy.level) {
+            enemy.level = Math.max(1, Math.floor(enemy.distanceFromSpawn / 500) + 1);
+        }
+        
+        // 每10000距离增加100血量，更频繁的距离加成
+        const healthBonus = Math.floor(enemy.distanceFromSpawn / 10000) * 100;
+        
+        if (healthBonus > 0) {
+            enemy.health += healthBonus;
+            enemy.maxHealth = enemy.health;
+        }
+        
+        console.log(`距离血量加成: 距离${enemy.distanceFromSpawn.toFixed(0)}px, 等级${enemy.level}, 血量加成${healthBonus}`);
     }
 }
 

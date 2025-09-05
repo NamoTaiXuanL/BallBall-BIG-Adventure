@@ -210,53 +210,123 @@ function spawnEnemyAtPoint(spawnPoint) {
 
 // 创建敌人
 function createEnemy(x, y, type) {
-    const enemy = {
-        x: x,
-        y: y,
-        dx: 0,
-        dy: 0,
-        radius: 20,
-        health: 20,
-        maxHealth: 20,
-        type: type,
-        speed: getEnemyBaseSpeed(type),
-        damage: 10,
-        stunned: 0,
-        attackCooldown: 0,
-        state: 'idle',
-        detectionRange: 350,
-        chaseRange: 1000
-    };
-    
-    // 体积变异（5%概率超大个体）
-    if (Math.random() < 0.05) {
-        const sizeMultiplier = randomBetween(1.8, 2.5);
-        enemy.radius *= sizeMultiplier;
-        enemy.health *= sizeMultiplier;
-        enemy.maxHealth = enemy.health;
+    try {
+        // v3.9.6: 计算距离和等级
+        const distanceFromSpawn = Math.sqrt(x * x + y * y);
+        const level = Math.max(1, Math.floor(distanceFromSpawn / 1000));
+        
+        // v3.9.6: 体积和速度变异
+        const isLarge = Math.random() < 0.15; // 15%概率超大个体
+        const isFast = Math.random() < 0.1;   // 10%概率高速个体
+        
+        // 基础速度
+        const baseSpeed = getEnemyBaseSpeed(type);
+        
+        // 创建敌人对象
+        const enemy = {
+            x: x,
+            y: y,
+            dx: 0,
+            dy: 0,
+            radius: isLarge ? 35 : 20,
+            health: isLarge ? 40 : 20,
+            maxHealth: isLarge ? 40 : 20,
+            type: type,
+            speed: isFast ? baseSpeed * 1.8 : baseSpeed,
+            damage: 10,
+            stunned: 0,
+            attackCooldown: 0,
+            state: 'idle',
+            detectionRange: 350,
+            chaseRange: 1000,
+            level: level,
+            distanceFromSpawn: distanceFromSpawn,
+            // v3.9.6: 变异标记
+            isLarge: isLarge,
+            isFast: isFast
+        };
+        
+        // v3.9.6: 先应用等级缩放和buff，再调整类型属性
+        if (game.buffSystem && game.buffSystem.applyLevelScaling) {
+            game.buffSystem.applyLevelScaling(enemy);
+        }
+        
+        // 根据类型调整属性（保持血量强化效果）
+        switch(type) {
+            case 'red':
+                // red类型保持基础属性，不做额外调整
+                break;
+            case 'largered':
+                enemy.radius = 40;
+                // 在原有血量基础上乘以4倍（80/20=4）
+                enemy.health *= 4;
+                enemy.maxHealth *= 4;  // 同步更新maxHealth，保持强化效果
+                enemy.speed = baseSpeed * 0.7;
+                break;
+            case 'rotating':
+                enemy.rotationAngle = 0;
+                enemy.rotationSpeed = 0.05;
+                enemy.moveDirection = Math.random() * Math.PI * 2;
+                // v3.9.6: 创建伴随球体
+                enemy.companion = {
+                    x: enemy.x + 50,
+                    y: enemy.y,
+                    radius: 8
+                };
+                break;
+            case 'teleport':
+                enemy.teleportCooldown = 0;
+                enemy.teleportRange = 200;
+                break;
+            case 'snake':
+                enemy.segments = [];
+                enemy.segmentCount = 3;
+                break;
+            case 'yellow':
+                enemy.radius = 15;
+                // 在原有血量基础上乘以0.75倍（15/20=0.75）
+                enemy.health *= 0.75;
+                enemy.maxHealth *= 0.75;  // 同步更新maxHealth，保持强化效果
+                enemy.speed = baseSpeed * 1.5;
+                break;
+            case 'blue':
+                // blue类型保持基础属性，不做额外调整
+                break;
+            case 'white':
+                // white类型保持基础属性，不做额外调整
+                break;
+            case 'black':
+                enemy.radius *= 1.5;
+                enemy.health *= 2;
+                enemy.maxHealth = enemy.health;
+                break;
+            case 'control':
+                // control类型保持基础属性，不做额外调整
+                break;
+            case 'elite':
+                // elite类型需要应用特殊属性
+                applyEnemyTypeProperties(enemy);
+                break;
+        }
+        
+        // 添加到游戏中
+        game.enemies.push(enemy);
+        
+        // 更新怪物统计
+        if (game.monsterStats) {
+            game.monsterStats.totalSpawned++;
+            if (!game.monsterStats.byType[type]) {
+                game.monsterStats.byType[type] = 0;
+            }
+            game.monsterStats.byType[type]++;
+        }
+        
+        return enemy;
+        
+    } catch (error) {
+        console.error(`[ERROR] createEnemy失败:`, error);
+        return null;
     }
-    
-    // 速度变异（8%概率高速个体）
-    if (Math.random() < 0.08) {
-        const speedMultiplier = randomBetween(1.5, 2.0);
-        enemy.speed *= speedMultiplier;
-    }
-    
-    // 根据类型设置特殊属性
-    applyEnemyTypeProperties(enemy);
-    
-    // 怪物统计追踪
-    monsterStats.totalSpawned++;
-    if (monsterStats.spawnedByType[type] !== undefined) {
-        monsterStats.spawnedByType[type]++;
-    }
-    
-    // 精英怪物子类型统计
-    if (type === 'elite' && enemy.eliteType && monsterStats.spawnedByType[enemy.eliteType] !== undefined) {
-        monsterStats.spawnedByType[enemy.eliteType]++;
-    }
-    
-    game.enemies.push(enemy);
 }
 
 // 获取敌人基础速度
@@ -432,6 +502,8 @@ function applyEnemyTypeProperties(enemy) {
     }
 }
 
+// 等级强化功能已移至BuffSystem.applyLevelScaling()
+
 // 注意：玩家更新函数已在inputHandler.js中定义，这里不重复定义以避免冲突
 
 // 游戏主循环更新函数
@@ -479,6 +551,9 @@ function update() {
     
     // 强制怪物密度控制
     enforceMonsterDensity();
+    
+    // 区域怪物上限控制 - v3.9.18
+    enforceAreaMonsterLimits();
     
     // 更新狂潮模式
     updateFrenzyMode();
@@ -562,7 +637,8 @@ function updateEnemySpawning(performanceMultiplier) {
 // 在玩家附近生成敌人
 function spawnEnemyNearPlayer() {
     const angle = Math.random() * Math.PI * 2;
-    const distance = randomBetween(400, 800);
+    // 扩大生成距离范围以适应精英怪物的距离要求
+    const distance = randomBetween(400, 1600);
     const x = game.player.x + Math.cos(angle) * distance;
     const y = game.player.y + Math.sin(angle) * distance;
     
@@ -1200,55 +1276,7 @@ function updateWindFireWheels() {
         }
     }
     
-    // 检测与敌人的碰撞
-    for (let i = game.enemies.length - 1; i >= 0; i--) {
-        const enemy = game.enemies[i];
-        const dx = enemy.x - game.player.x;
-        const dy = enemy.y - game.player.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        if (distance < game.player.windFireWheels.radius + enemy.radius) {
-            // 计算伤害
-            let damage = game.player.windFireWheels.damage;
-            
-            // 暴击判定
-            const isCritical = Math.random() < game.player.criticalRate;
-            if (isCritical) {
-                damage = Math.floor(damage * game.player.criticalMultiplier);
-                createCriticalDisplay(damage);
-            }
-            
-            // 对敌人造成伤害
-            enemy.health -= damage;
-            
-            // 击退效果
-            const knockbackForce = 15;
-            const angle = Math.atan2(dy, dx);
-            enemy.dx += Math.cos(angle) * knockbackForce;
-            enemy.dy += Math.sin(angle) * knockbackForce;
-            
-            // 伤害数值显示
-            createDamageNumber(enemy.x, enemy.y - 20, damage, isCritical);
-            
-            // 击中粒子效果
-            for (let j = 0; j < 10; j++) {
-                game.particles.push({
-                    x: enemy.x,
-                    y: enemy.y,
-                    dx: (Math.random() - 0.5) * 10,
-                    dy: (Math.random() - 0.5) * 10,
-                    radius: Math.random() * 4 + 2,
-                    color: '#FF6B35',
-                    lifetime: 25
-                });
-            }
-            
-            // 检查敌人是否死亡
-            if (enemy.health <= 0) {
-                handleEnemyDeath(enemy, i);
-            }
-        }
-    }
+    // 风火轮只通过旋转的火球造成伤害，不应有额外的范围伤害
 }
 
 // 激活激光技能
@@ -2064,9 +2092,26 @@ function handleEnemyDeath(enemy, index) {
         }
     }
     
-    // 经验和分数奖励
-    const expGain = Math.floor(enemy.maxHealth / 4) + 5;
-    const scoreGain = Math.floor(enemy.maxHealth / 2) + 10;
+    // 经验和分数奖励 - 基于等级的大幅提升
+    // 安全检查，防止NaN
+    const safeMaxHealth = enemy.maxHealth || enemy.health || 20;
+    const safeDistanceFromSpawn = enemy.distanceFromSpawn || 0;
+    
+    const baseExpGain = Math.floor(safeMaxHealth / 4) + 5;
+    const baseScoreGain = Math.floor(safeMaxHealth / 2) + 10;
+    
+    // 根据怪物等级计算奖励倍数
+    const level = enemy.level || 1;
+    const levelMultiplier = 1 + (level - 1) * 0.5; // 每级增加50%奖励
+    const distanceBonus = Math.floor(safeDistanceFromSpawn / 1000) * 0.2; // 每1000距离额外20%
+    const totalMultiplier = levelMultiplier + distanceBonus;
+    
+    const expGain = Math.floor(baseExpGain * totalMultiplier);
+    const scoreGain = Math.floor(baseScoreGain * totalMultiplier);
+    
+    // 确保game.player.exp和game.score是数字
+    if (isNaN(game.player.exp)) game.player.exp = 0;
+    if (isNaN(game.score)) game.score = 0;
     
     game.player.exp += expGain;
     game.score += scoreGain;
@@ -2474,12 +2519,33 @@ function preSpawnMonstersAtPoint(spawnPoint) {
         const enemyX = spawnPoint.x + offsetX;
         const enemyY = spawnPoint.y + offsetY;
         
-        // 选择敌人类型
-        const enemyTypes = ['red', 'blue', 'white', 'black'];
-        const enemyType = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
+        // 选择敌人类型，包含精英怪物生成逻辑
+        let enemyType;
+        
+        // 检查是否生成精英怪物
+        const distanceToPlayer = Math.sqrt(
+            Math.pow(enemyX - game.player.x, 2) + 
+            Math.pow(enemyY - game.player.y, 2)
+        );
+        
+        if (distanceToPlayer >= config.enemies.eliteMinDistance && 
+            distanceToPlayer <= config.enemies.eliteMaxDistance && 
+            Math.random() < config.enemies.eliteSpawnChance) {
+            enemyType = 'elite';
+        } else {
+            // 普通敌人类型
+            const normalTypes = ['red', 'blue', 'white', 'black', 'largered', 'rotating', 'teleport', 'snake', 'yellow', 'control'];
+            enemyType = normalTypes[Math.floor(Math.random() * normalTypes.length)];
+        }
         
         const enemy = createEnemy(enemyX, enemyY, enemyType);
-        game.enemies.push(enemy);
+         if (enemy) {
+             console.log(`[DEBUG] preSpawnMonstersAtPoint创建怪物成功: type=${enemyType}, level=${enemy.level}, distanceFromSpawn=${enemy.distanceFromSpawn}`);
+         } else {
+             console.error(`[ERROR] createEnemy返回null: x=${enemyX}, y=${enemyY}, type=${enemyType}`);
+             continue; // 跳过这个怪物，继续创建下一个
+         }
+        // createEnemy已经将enemy添加到game.enemies数组中，无需重复添加
         
         monsterStats.totalSpawned++;
         monsterStats.spawnedByType[enemyType]++;
@@ -2880,6 +2946,85 @@ function generatePlatformInArea(centerX, centerY, areaType) {
     }
 }
 
+// 区域怪物上限控制 - v3.9.18
+function enforceAreaMonsterLimits() {
+    const regionSize = Math.max(game.gameWidth, game.gameHeight); // 区域大小
+    const playerScreenX = Math.floor(game.player.x / regionSize);
+    const playerScreenY = Math.floor(game.player.y / regionSize);
+    
+    // 统计各区域的怪物数量
+    const areaMonsterCount = new Map();
+    for (const enemy of game.enemies) {
+        const areaX = Math.floor(enemy.x / regionSize);
+        const areaY = Math.floor(enemy.y / regionSize);
+        const areaKey = `${areaX},${areaY}`;
+        areaMonsterCount.set(areaKey, (areaMonsterCount.get(areaKey) || 0) + 1);
+    }
+    
+    // 检查玩家周围区域的怪物上限
+    const checkRange = 3; // 检查玩家周围3x3区域
+    for (let dx = -checkRange; dx <= checkRange; dx++) {
+        for (let dy = -checkRange; dy <= checkRange; dy++) {
+            const areaX = playerScreenX + dx;
+            const areaY = playerScreenY + dy;
+            const areaKey = `${areaX},${areaY}`;
+            const currentCount = areaMonsterCount.get(areaKey) || 0;
+            
+            // 计算该区域的怪物上限
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            let maxMonstersInArea;
+            if (distance <= 1) {
+                maxMonstersInArea = 12; // 玩家附近区域上限12个
+            } else if (distance <= 2) {
+                maxMonstersInArea = 8;  // 中距离区域上限8个
+            } else {
+                maxMonstersInArea = 5;  // 远距离区域上限5个
+            }
+            
+            // 如果超过上限，移除多余怪物
+            if (currentCount > maxMonstersInArea) {
+                const areaEnemies = game.enemies.filter(enemy => {
+                    const eAreaX = Math.floor(enemy.x / regionSize);
+                    const eAreaY = Math.floor(enemy.y / regionSize);
+                    return eAreaX === areaX && eAreaY === areaY;
+                });
+                
+                // 分离精英怪物和普通怪物
+                const normalEnemies = areaEnemies.filter(enemy => enemy.type !== 'elite');
+                const eliteEnemies = areaEnemies.filter(enemy => enemy.type === 'elite');
+                
+                // 优先移除普通怪物，保护精英怪物
+                normalEnemies.sort((a, b) => a.health - b.health);
+                const toRemove = Math.min(currentCount - maxMonstersInArea, 3); // 限制单次清理数量
+                
+                let removedCount = 0;
+                // 先移除普通怪物
+                for (let i = 0; i < normalEnemies.length && removedCount < toRemove; i++) {
+                    const enemyToRemove = normalEnemies[i];
+                    const index = game.enemies.indexOf(enemyToRemove);
+                    if (index !== -1) {
+                        game.enemies.splice(index, 1);
+                        removedCount++;
+                    }
+                }
+                
+                // 如果还需要移除且只剩精英怪物，才移除精英怪物
+                if (removedCount < toRemove && eliteEnemies.length > 0) {
+                    eliteEnemies.sort((a, b) => a.health - b.health);
+                    for (let i = 0; i < eliteEnemies.length && removedCount < toRemove; i++) {
+                        const enemyToRemove = eliteEnemies[i];
+                        const index = game.enemies.indexOf(enemyToRemove);
+                        if (index !== -1) {
+                            game.enemies.splice(index, 1);
+                            removedCount++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // 强制怪物密度控制
 function enforceMonsterDensity() {
     const screenRanges = 9; // 九个屏幕范围
@@ -2896,15 +3041,15 @@ function enforceMonsterDensity() {
         return Math.sqrt(dx * dx + dy * dy) < totalRange;
     }).length;
     
-    // 动态调整最小怪物数量阈值
-    const baseMinEnemies = Math.max(15, Math.floor(screenRanges * 3));
+    // 动态调整最小怪物数量阈值 - 降低基础数量
+    const baseMinEnemies = Math.max(8, Math.floor(screenRanges * 1.5)); // 从15降到8，倍数从3降到1.5
     const playerLevel = game.player.level || 1;
-    const minEnemies = Math.floor(baseMinEnemies + playerLevel * 0.5);
+    const minEnemies = Math.floor(baseMinEnemies + playerLevel * 0.3); // 从0.5降到0.3
     
     // 如果敌人数量低于阈值，增加刷怪速度
     if (enemiesInRange < minEnemies) {
         const shortage = minEnemies - enemiesInRange;
-        const urgencyMultiplier = Math.min(3.0, 1.0 + shortage * 0.1);
+        const urgencyMultiplier = Math.min(2.0, 1.0 + shortage * 0.05); // 从3.0降到2.0，从0.1降到0.05
         
         // 提升所有生成点的生成速度
         for (const spawnPoint of game.spawnPoints) {
@@ -2917,8 +3062,8 @@ function enforceMonsterDensity() {
             }
         }
         
-        // 强制生成怪物补充数量
-        const spawnCount = Math.min(shortage, 5);
+        // 强制生成怪物补充数量 - 降低单次生成数量
+        const spawnCount = Math.min(shortage, 2); // 从5降到2
         for (let i = 0; i < spawnCount; i++) {
             spawnEnemyNearPlayer();
         }
@@ -3020,6 +3165,7 @@ if (typeof module !== 'undefined' && module.exports) {
         cleanupDistantMapElements,
         generatePlatformBelowPlayer,
         enforceMonsterDensity,
+        enforceAreaMonsterLimits,
         updateFrenzyMode,
         randomBetween,
         activateWindFireWheels,

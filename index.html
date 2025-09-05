@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>球球大冒险 v3.9.6</title>
+    <title>球球大冒险 v4.0.0</title>
     <style>
         body {
             margin: 0;
@@ -18,11 +18,13 @@
     <canvas id="gameCanvas"></canvas>
     
     <!-- 引入模块文件 -->
-    <script src="utils.js?v=3.9.6"></script>
-            <script src="inputHandler.js?v=3.9.6"></script>
-            <script src="buffSystem.js?v=3.9.6"></script>
-            <script src="gameLogic.js?v=3.9.6"></script>
-            <script src="render.js?v=3.9.6"></script>
+    <script src="utils.js?v=4.0.0"></script>
+            <script src="inputHandler.js?v=4.0.0"></script>
+            <script src="debugLogger.js?v=4.0.0"></script>
+            <script src="buffSystem.js?v=4.0.0"></script>
+            <script src="debugPanel.js?v=4.0.0"></script>
+            <script src="gameLogic.js?v=4.0.0"></script>
+            <script src="render.js?v=4.0.0"></script>
     
     <script>
         // 游戏配置
@@ -216,7 +218,6 @@
                 experience: config.player.exp,
                 expToNextLevel: config.player.expToNextLevel,
                 experienceToNextLevel: config.player.expToNextLevel,
-                score: 0,
                 attackPower: config.player.attackPower,
                 criticalRate: 0.15,  // 15%暴击率
                 criticalMultiplier: 2.0,  // 暴击伤害倍数
@@ -388,6 +389,11 @@
             // 初始化buff系统
             if (window.BuffSystem) {
                 game.buffSystem = new window.BuffSystem(game);
+            }
+            
+            // 初始化调试面板
+            if (window.DebugPanel) {
+                game.debugPanel = new window.DebugPanel(game);
             }
             
             // 生成初始平台和所有地图元素
@@ -638,209 +644,7 @@
             }
         }
         
-        // 创建敌人
-        function createEnemy(x, y, type) {
-            // 随机体积变化 (0.7-2.5倍，有5%概率出现超大个体)
-            const sizeMultiplier = Math.random() < 0.05 ? 
-                (1.8 + Math.random() * 0.7) : // 超大个体: 1.8-2.5倍
-                (0.7 + Math.random() * 0.8);  // 普通个体: 0.7-1.5倍
-            
-            // 随机速度变化 (0.6-2.0倍，有8%概率出现高速个体)
-            const speedMultiplier = Math.random() < 0.08 ? 
-                (1.5 + Math.random() * 0.5) : // 高速个体: 1.5-2.0倍
-                (0.6 + Math.random() * 0.7);  // 普通个体: 0.6-1.3倍
-            
-            const baseSpeed = type === 'black' ? 2.5 : type === 'white' ? 4.5 : 3.5;
-            
-            const enemy = {
-                x: x,
-                y: y,
-                dx: 0,
-                dy: 0,
-                type: type,
-                radius: config.enemies.baseRadius * sizeMultiplier,
-                health: config.enemies.health,
-                maxHealth: config.enemies.health,
-                attackCooldown: 0,
-                lastAttackTime: 0,
-                targetX: 0,
-                targetY: 0,
-                state: 'idle',
-                detectionRange: 350,
-                chaseRange: 1000,
-                speed: baseSpeed * speedMultiplier,
-                sizeMultiplier: sizeMultiplier,
-                speedMultiplier: speedMultiplier
-            };
-            
-            // 不同类型敌人有不同属性
-            switch (type) {
-                case 'red':
-                    enemy.radius *= 1.2;
-                    enemy.health *= 1.5;
-                    enemy.maxHealth = enemy.health;
-                    enemy.speed *= 1.1;
-                    break;
-                case 'blue':
-                    enemy.radius *= 0.9;
-                    break;
-                case 'white':
-                    enemy.radius *= 0.8;
-                    enemy.health *= 0.8;
-                    enemy.maxHealth = enemy.health;
-                    break;
-                case 'black':
-                    enemy.radius *= 1.5;
-                    enemy.health *= 2;
-                    enemy.maxHealth = enemy.health;
-                    break;
-                case 'largered':
-                    enemy.radius *= 2.5;
-                    enemy.health *= 4;
-                    enemy.maxHealth = enemy.health;
-                    enemy.speed *= 0.8;
-                    enemy.moveDirection = 1;
-                    enemy.scatterCooldown = 0;
-                    enemy.scatterInterval = 120;
-                    break;
-                case 'rotating':
-                    enemy.radius *= 1.3;
-                    enemy.health *= 3;
-                    enemy.maxHealth = enemy.health;
-                    enemy.speed *= 1.2;
-                    enemy.rotationAngle = 0;
-                    enemy.rotationSpeed = 0.05;
-                    enemy.orbitRadius = 60;
-                    enemy.companion = {
-                        x: x + enemy.orbitRadius,
-                        y: y,
-                        radius: enemy.radius * 0.8
-                    };
-                    break;
-                case 'teleport':
-                    enemy.radius *= 1.1;
-                    enemy.health *= 2.5;
-                    enemy.maxHealth = enemy.health;
-                    enemy.speed *= 1.3;
-                    enemy.teleportCooldown = 0;
-                    enemy.teleportInterval = 180;
-                    enemy.teleportRange = 400;
-                    enemy.isCharging = false;
-                    enemy.chargeTime = 0;
-                    enemy.maxChargeTime = 60;
-                    break;
-                case 'snake':
-                    enemy.radius *= 0.9;
-                    enemy.health *= 2.5;
-                    enemy.maxHealth = enemy.health;
-                    enemy.speed *= 0.7;
-                    enemy.segments = [];
-                    enemy.segmentCount = 4 + Math.floor(Math.random() * 3);
-                    enemy.segmentDistance = enemy.radius * 2.5;
-                    break;
-                case 'yellow':
-                    enemy.radius *= 1.0;
-                    enemy.health *= 2.0;
-                    enemy.maxHealth = enemy.health;
-                    enemy.speed *= 0.9;
-                    enemy.baseRadius = enemy.radius;
-                    enemy.baseSpeed = enemy.speed;
-                    enemy.baseDamage = 6;
-                    enemy.damage = enemy.baseDamage;
-                    enemy.minRadius = enemy.radius * 0.5;
-                    enemy.maxRadius = enemy.radius * 2.5;
-                    enemy.sizeChangeSpeed = 0.02;
-                    enemy.isGrowing = true;
-                    enemy.sizePhase = 0;
-                    break;
-                case 'control':
-                    enemy.radius *= 1.1;
-                    enemy.health *= 2.0;
-                    enemy.maxHealth = enemy.health;
-                    enemy.speed *= 0.8;
-                    enemy.controlRingRadius = 120;
-                    enemy.controlRingMaxRadius = 150;
-                    enemy.controlRingMinRadius = 80;
-                    enemy.controlRingPulse = 0;
-                    enemy.controlRingPulseSpeed = 0.05;
-                    enemy.slowEffect = 0.3;
-                    enemy.controlCooldown = 0;
-                    enemy.controlInterval = 180;
-                    break;
-                case 'elite':
-                    // 精英怪物基础属性
-                    enemy.radius *= 2.0;
-                    enemy.health *= 5.0;
-                    enemy.maxHealth = enemy.health;
-                    enemy.speed *= 0.6;
-                    enemy.damage = 15;
-                    enemy.gravityFieldRadius = 300;
-                    enemy.gravityStrength = 1.0;
-                    enemy.bigBulletCooldown = 0;
-                    enemy.bigBulletInterval = 240;
-                    enemy.orbs = [];
-                    
-                    // 随机选择精英怪物子类型
-                    const eliteVariants = ['graviton', 'destroyer', 'guardian', 'vortex'];
-                    enemy.eliteType = eliteVariants[Math.floor(Math.random() * eliteVariants.length)];
-                    
-                    // 根据子类型设置特殊属性
-                    switch(enemy.eliteType) {
-                        case 'graviton': // 引力型
-                            enemy.gravityFieldRadius = 350;
-                            enemy.gravityStrength = 1.2;
-                            enemy.orbCount = 4;
-                            break;
-                        case 'destroyer': // 破坏型
-                            enemy.gravityFieldRadius = 250;
-                            enemy.gravityStrength = 0.8;
-                            enemy.damage *= 1.5;
-                            enemy.bigBulletInterval = 180;
-                            enemy.orbCount = 6;
-                            break;
-                        case 'guardian': // 防御型
-                            enemy.gravityFieldRadius = 300;
-                            enemy.gravityStrength = 1.0;
-                            enemy.health *= 1.5;
-                            enemy.maxHealth = enemy.health;
-                            enemy.orbCount = 3;
-                            break;
-                        case 'vortex': // 漩涡型
-                            enemy.gravityFieldRadius = 400;
-                            enemy.gravityStrength = 1.5;
-                            enemy.orbCount = 5;
-                            break;
-                    }
-                    
-                    // 初始化轨道球
-                    for (let i = 0; i < enemy.orbCount; i++) {
-                        const angle = (i / enemy.orbCount) * Math.PI * 2;
-                        const orbRadius = 80 + i * 10;
-                        enemy.orbs.push({
-                            angle: angle,
-                            radius: orbRadius,
-                            size: 12,
-                            speed: 0.02 + Math.random() * 0.01
-                        });
-                    }
-                    break;
-            }
-            
-            game.enemies.push(enemy);
-            
-            // 怪物生成统计追踪
-            if (window.monsterStats) {
-                window.monsterStats.totalSpawned++;
-                // 精英怪物使用子类型统计
-                if (enemy.type === 'elite' && enemy.eliteType) {
-                    if (window.monsterStats.spawnedByType[enemy.eliteType] !== undefined) {
-                        window.monsterStats.spawnedByType[enemy.eliteType]++;
-                    }
-                } else if (window.monsterStats.spawnedByType[enemy.type] !== undefined) {
-                    window.monsterStats.spawnedByType[enemy.type]++;
-                }
-            }
-        }
+        // createEnemy函数已移至gameLogic.js中
         
         // 生成云朵
         function generateClouds() {
