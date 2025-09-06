@@ -1562,9 +1562,17 @@ function drawUI() {
     // 精力值
     ctx.fillText(`精力: ${Math.floor(game.player.stamina)}/${game.player.maxStamina}`, 10, 165);
     
+    // 金币显示 - v4.2.0
+    if (window.coinSystem) {
+        const currentCoins = window.coinSystem.getCurrentCoins();
+        ctx.fillStyle = '#FFD700'; // 金色
+        ctx.fillText(`💰 金币: ${currentCoins}`, 10, 185);
+        ctx.fillStyle = '#FFFFFF'; // 恢复白色
+    }
+    
     // FPS显示
     if (game.showFPS && game.fps) {
-        ctx.fillText(`FPS: ${game.fps}`, 10, 185);
+        ctx.fillText(`FPS: ${game.fps}`, 10, 205);
     }
     
     // 控制状态调试信息
@@ -1732,6 +1740,137 @@ function drawUI() {
         drawMonsterKillStats();
     } else {
         drawSimpleKillStats();
+    }
+    
+    // 购买系统界面 - v4.3.0
+    if (window.shopSystem && window.shopSystem.isShopOpen) {
+        drawShopInterface();
+    }
+}
+
+// 绘制购买系统界面 - v4.3.0
+function drawShopInterface() {
+    const ctx = game.ctx;
+    
+    if (!window.shopSystem) return;
+    
+    // 界面位置：屏幕1/5高度
+    const shopY = game.gameHeight / 5;
+    const shopWidth = game.gameWidth * 0.8;
+    const shopHeight = game.gameHeight * 0.6;
+    const shopX = (game.gameWidth - shopWidth) / 2;
+    
+    // 绘制半透明背景
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+    ctx.fillRect(shopX, shopY, shopWidth, shopHeight);
+    
+    // 绘制边框
+    ctx.strokeStyle = '#FFD700';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(shopX, shopY, shopWidth, shopHeight);
+    
+    // 标题
+    ctx.fillStyle = '#FFD700';
+    ctx.font = 'bold 24px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('🛒 商店系统', shopX + shopWidth / 2, shopY + 40);
+    
+    // 当前金币显示
+    const currentCoins = window.coinSystem ? window.coinSystem.getCurrentCoins() : 0;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '18px Arial';
+    ctx.fillText(`💰 当前金币: ${currentCoins}`, shopX + shopWidth / 2, shopY + 70);
+    
+    // 操作提示
+    ctx.fillStyle = '#CCCCCC';
+    ctx.font = '14px Arial';
+    ctx.fillText('按数字键 1-10 购买商品，按 B 键关闭商店', shopX + shopWidth / 2, shopY + 95);
+    
+    // 商品网格布局 (2行5列)
+    const itemsPerRow = 5;
+    const rows = 2;
+    const itemWidth = (shopWidth - 80) / itemsPerRow;
+    const itemHeight = (shopHeight - 150) / rows;
+    const startX = shopX + 40;
+    const startY = shopY + 120;
+    
+    const items = window.shopSystem.getAllItems();
+    
+    for (let i = 0; i < items.length && i < 10; i++) {
+        const item = items[i];
+        const row = Math.floor(i / itemsPerRow);
+        const col = i % itemsPerRow;
+        const x = startX + col * itemWidth;
+        const y = startY + row * itemHeight;
+        
+        // 商品框背景
+        if (item.available) {
+            ctx.fillStyle = 'rgba(0, 100, 0, 0.3)';
+        } else {
+            ctx.fillStyle = 'rgba(100, 0, 0, 0.3)';
+        }
+        ctx.fillRect(x, y, itemWidth - 10, itemHeight - 10);
+        
+        // 商品框边框
+        if (item.available) {
+            ctx.strokeStyle = '#00FF00';
+        } else {
+            ctx.strokeStyle = '#FF0000';
+        }
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, itemWidth - 10, itemHeight - 10);
+        
+        // 商品编号
+        ctx.fillStyle = '#FFD700';
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText(`${i + 1}`, x + 5, y + 20);
+        
+        // 商品图标
+        ctx.font = '24px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(item.icon, x + itemWidth / 2 - 5, y + 45);
+        
+        // 商品名称
+        ctx.fillStyle = item.available ? '#FFFFFF' : '#888888';
+        ctx.font = 'bold 14px Arial';
+        ctx.fillText(item.name, x + itemWidth / 2 - 5, y + 65);
+        
+        // 商品描述
+        ctx.fillStyle = item.available ? '#CCCCCC' : '#666666';
+        ctx.font = '11px Arial';
+        const description = item.description.length > 12 ? item.description.substring(0, 12) + '...' : item.description;
+        ctx.fillText(description, x + itemWidth / 2 - 5, y + 80);
+        
+        // 属性增加值
+        if (item.available) {
+            ctx.fillStyle = '#00FF00';
+            ctx.font = '12px Arial';
+            const attributeDisplay = window.attributeSystem ? window.attributeSystem.getAttributeDisplayName(item.attributeName) : item.attributeName;
+            ctx.fillText(`+${item.attributeValue} ${attributeDisplay}`, x + itemWidth / 2 - 5, y + 95);
+        }
+        
+        // 价格
+        ctx.fillStyle = item.available ? '#FFD700' : '#888888';
+        ctx.font = 'bold 13px Arial';
+        ctx.fillText(`💰 ${item.price}`, x + itemWidth / 2 - 5, y + 110);
+        
+        // 购买次数
+        if (window.shopSystem) {
+            const purchaseCount = window.shopSystem.getPurchaseCount(item.id);
+            if (purchaseCount > 0) {
+                ctx.fillStyle = '#87CEEB';
+                ctx.font = '10px Arial';
+                ctx.fillText(`已购买: ${purchaseCount}`, x + itemWidth / 2 - 5, y + 125);
+            }
+        }
+        
+        // 不可用标记
+        if (!item.available) {
+            ctx.fillStyle = 'rgba(255, 0, 0, 0.7)';
+            ctx.font = 'bold 12px Arial';
+            ctx.fillText('暂未开放', x + itemWidth / 2 - 5, y + itemHeight / 2);
+        }
     }
 }
 
@@ -2197,6 +2336,7 @@ window.renderFloatingTexts = renderFloatingTexts;
 window.renderAoeRings = renderAoeRings;
 window.renderCriticalDisplays = renderCriticalDisplays;
 window.drawUI = drawUI;
+window.drawShopInterface = drawShopInterface;
 window.drawMonsterKillStats = drawMonsterKillStats;
 window.drawSimpleKillStats = drawSimpleKillStats;
 window.drawAnimatedScore = drawAnimatedScore;
@@ -2228,6 +2368,7 @@ if (typeof module !== 'undefined' && module.exports) {
         renderAoeRings,
         renderCriticalDisplays,
         drawUI,
+        drawShopInterface,
         drawMonsterKillStats,
         drawSimpleKillStats,
         drawAnimatedScore,

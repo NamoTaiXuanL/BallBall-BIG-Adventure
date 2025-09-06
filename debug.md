@@ -4,6 +4,57 @@
 
 ---
 
+## 2025-01-13 - 购买系统接口错误和风火轮伤害NaN问题修复
+
+### 问题描述
+- **发现时间**: 2025-01-13
+- **问题现象**: 
+  1. 购买时出现`TypeError: window.coinSystem.getCoins is not a function`错误
+  2. 风火轮技能伤害显示NaN
+- **影响范围**: 购买系统无法正常使用，风火轮技能伤害计算异常
+- **严重程度**: 高 - 影响新功能正常使用
+
+### 问题分析
+1. **购买系统错误**:
+   - 根本原因: `shopSystem.js`中调用了不存在的`getCoins()`方法
+   - 正确方法名: `getCurrentCoins()`
+   - 接口不匹配导致购买功能完全失效
+
+2. **风火轮伤害NaN错误**:
+   - 根本原因: 直接访问`window.attributeSystem.baseDamage`属性
+   - 正确访问方式: 使用`getAttribute('baseDamage')`方法
+   - 属性访问方式错误导致返回undefined，计算结果为NaN
+
+### 修复过程
+1. **购买系统修复**:
+   ```javascript
+   // 修复前
+   window.coinSystem.getCoins()
+   // 修复后  
+   window.coinSystem.getCurrentCoins()
+   ```
+
+2. **风火轮伤害修复**:
+   ```javascript
+   // 修复前
+   window.attributeSystem.baseDamage
+   // 修复后
+   window.attributeSystem.getAttribute('baseDamage')
+   ```
+
+### 修复结果
+- ✅ 购买系统正常工作，可以成功购买基础伤害
+- ✅ 风火轮技能伤害计算正确，不再显示NaN
+- ✅ 属性系统集成完整，伤害加成正常生效
+- ✅ 金币系统接口调用正确
+
+### 预防措施
+- 在集成新系统时，确保接口方法名称的一致性
+- 使用对象属性时，优先使用提供的访问方法而非直接属性访问
+- 加强接口文档管理，避免方法名不匹配问题
+
+---
+
 ## 2025-09-06 - 精英怪生成回归问题修复
 
 ### 问题描述

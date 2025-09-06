@@ -72,6 +72,39 @@ function handleKeyDown(e) {
             window.damageTracker.toggleVisibility();
         }
     }
+    
+    // B键切换购买系统界面
+    if (key === 'b') {
+        if (window.shopSystem) {
+            window.shopSystem.toggleShop();
+        }
+    }
+    
+    // 数字键购买商品（仅在商店打开时有效）
+    if (window.shopSystem && window.shopSystem.isShopOpen) {
+        const numKey = parseInt(key);
+        if (numKey >= 1 && numKey <= 10) {
+            const result = window.shopSystem.buyItem(numKey);
+            if (result.success) {
+                // 购买成功，显示成功消息
+                console.log(result.message);
+            } else {
+                // 购买失败，显示失败原因
+                console.log(result.message);
+                
+                // 显示失败提示的浮动文字（如果存在）
+                if (window.createFloatingText && window.player) {
+                    window.createFloatingText(
+                        window.player.x,
+                        window.player.y - 50,
+                        result.message,
+                        '#ff4444',
+                        2000
+                    );
+                }
+            }
+        }
+    }
 }
 
 // 键盘释放事件处理
@@ -691,7 +724,7 @@ function handlePlayerAttack() {
                 dx: Math.cos(scatterAngle) * 12,
                 dy: Math.sin(scatterAngle) * 12,
                 radius: 6,
-                damage: Math.floor(game.player.attackPower * 0.8),
+                damage: Math.floor((game.player.attackPower + (window.attributeSystem ? window.attributeSystem.getAttribute('baseDamage') : 0)) * 0.8),
                 owner: 'player',
                 lifetime: 100,
                 active: true,
@@ -739,7 +772,7 @@ function handlePlayerAttack() {
                     dx: Math.cos(bulletAngle) * 10,
                     dy: Math.sin(bulletAngle) * 10,
                     radius: 8,
-                    damage: game.player.attackPower,
+                    damage: game.player.attackPower + (window.attributeSystem ? window.attributeSystem.getAttribute('baseDamage') : 0),
                     owner: 'player',
                     lifetime: Math.min(120, Math.floor(distance / 8) + 30),
                     active: true,
@@ -756,7 +789,7 @@ function handlePlayerAttack() {
                 dx: Math.cos(angle) * 10,
                 dy: Math.sin(angle) * 10,
                 radius: 8,
-                damage: game.player.attackPower,
+                damage: game.player.attackPower + (window.attributeSystem ? window.attributeSystem.getAttribute('baseDamage') : 0),
                 owner: 'player',
                 lifetime: Math.min(120, Math.floor(distance / 8) + 30),
                 active: true

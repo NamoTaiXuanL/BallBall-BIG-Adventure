@@ -1265,13 +1265,14 @@ function updateWindFireWheels() {
             const distance = Math.sqrt(dx * dx + dy * dy);
             
             if (distance < game.player.windFireWheels.orbSize + enemy.radius) {
-                // 对敌人造成伤害
-                enemy.health -= game.player.windFireWheels.damage;
+                // 对敌人造成伤害（加上基础伤害增加值）
+                const windFireDamage = game.player.windFireWheels.damage + (window.attributeSystem ? window.attributeSystem.getAttribute('baseDamage') : 0);
+                enemy.health -= windFireDamage;
                 
                 // 记录风火轮伤害
                 if (window.damageTracker) {
                     window.damageTracker.recordDamage({
-                        damage: game.player.windFireWheels.damage,
+                        damage: windFireDamage,
                         monsterType: enemy.type,
                         damageSource: 'windFireWheels',
                         isCritical: false,
@@ -1282,7 +1283,7 @@ function updateWindFireWheels() {
                 
                 // 添加简单伤害显示
                 if (window.simpleDamageDisplay) {
-                    window.simpleDamageDisplay.addDamageText(game.player.windFireWheels.damage, enemy.x, enemy.y, false);
+                    window.simpleDamageDisplay.addDamageText(windFireDamage, enemy.x, enemy.y, false);
                 }
                 
                 // 击退效果
@@ -1292,7 +1293,7 @@ function updateWindFireWheels() {
                 enemy.dy += Math.sin(knockbackAngle) * knockbackForce;
                 
                 // 伤害数值显示
-                createDamageNumber(enemy.x, enemy.y, game.player.windFireWheels.damage);
+                createDamageNumber(enemy.x, enemy.y, windFireDamage);
                 
                 // 碰撞粒子效果
                 for (let k = 0; k < 5; k++) {
@@ -2385,6 +2386,23 @@ function handleEnemyDeath(enemy, index) {
     
     // 创建经验数值显示
     createExperienceNumber(enemy.x, enemy.y, expGain);
+    
+    // 金币奖励系统 - v4.2.0
+    if (window.coinSystem) {
+        // 触发怪物击杀事件，让金币系统处理奖励
+        const monsterKillEvent = new CustomEvent('monsterKilled', {
+            detail: {
+                monster: {
+                    type: enemy.type,
+                    level: enemy.level || 1,
+                    maxHealth: safeMaxHealth,
+                    x: enemy.x,
+                    y: enemy.y
+                }
+            }
+        });
+        document.dispatchEvent(monsterKillEvent);
+    }
     
     // 死亡粒子效果
     for (let j = 0; j < 15; j++) {
