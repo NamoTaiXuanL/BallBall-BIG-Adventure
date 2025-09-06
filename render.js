@@ -37,6 +37,16 @@ function render(gameState, gameConfig) {
     // 绘制UI（不受相机影响）
     drawUI();
     
+    // 绘制伤害记录窗口
+    if (game.damageWindow) {
+        game.damageWindow.render();
+    }
+    
+    // 更新和绘制简单伤害显示
+    if (window.simpleDamageDisplay) {
+        window.simpleDamageDisplay.update();
+    }
+    
     // 游戏结束时绘制结束界面
     if (game.player.health <= 0) {
         gameOver();
@@ -268,6 +278,9 @@ function renderOtherMapElements(ctx, viewLeft, viewRight, viewTop, viewBottom) {
 
 // 渲染游戏对象
 function renderGameObjects(ctx, viewLeft, viewRight, viewTop, viewBottom) {
+    // 绘制安全区（在其他对象之前绘制，作为背景层）
+    renderSafeZones(ctx, viewLeft, viewRight, viewTop, viewBottom);
+    
     // 绘制敌人
     renderEnemies(ctx, viewLeft, viewRight, viewTop, viewBottom);
     
@@ -561,7 +574,18 @@ function renderEnemies(ctx, viewLeft, viewRight, viewTop, viewBottom) {
                 glow: { r: 255, g: 255, b: 0 }
             };
             
-            switch(enemy.eliteType) {
+            // 友好怪物使用绿色主题
+            if (enemy.friendly) {
+                themeColors = {
+                    field: { r: 0, g: 255, b: 136 },
+                    main: '#00FF88',
+                    core: '#00CC66',
+                    orb: '#66FF99',
+                    border: '#00AA44',
+                    glow: { r: 102, g: 255, b: 153 }
+                };
+            } else {
+                switch(enemy.eliteType) {
                 case 'graviton': // 引力型 - 紫色主题
                     themeColors = {
                         field: { r: 138, g: 43, b: 226 },
@@ -602,6 +626,7 @@ function renderEnemies(ctx, viewLeft, viewRight, viewTop, viewBottom) {
                         glow: { r: 124, g: 252, b: 0 }
                     };
                     break;
+                }
             }
             
             // 引力场效果
@@ -1218,6 +1243,130 @@ function renderBubblePowerups(ctx, viewLeft, viewRight, viewTop, viewBottom) {
             ctx.fillStyle = `rgba(224, 247, 250, ${pulse * 0.5})`;
             ctx.beginPath();
             ctx.arc(bubble.x, bubble.y, bubble.size * 0.7, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+}
+
+// 渲染安全区
+function renderSafeZones(ctx, viewLeft, viewRight, viewTop, viewBottom) {
+    if (!window.safeZoneSystem || !window.safeZoneSystem.safeZones) {
+        return;
+    }
+    
+    const currentTime = performance.now();
+    
+    for (const safeZone of window.safeZoneSystem.safeZones) {
+        // 检查安全区是否在视野范围内
+        const safeZoneRadius = 400; // 安全区半径
+        if (safeZone.x + safeZoneRadius >= viewLeft && 
+            safeZone.x - safeZoneRadius <= viewRight &&
+            safeZone.y + safeZoneRadius >= viewTop && 
+            safeZone.y - safeZoneRadius <= viewBottom) {
+            
+            // 绘制安全区边界 - 减少闪烁频率
+            const pulseIntensity = Math.sin(currentTime * 0.001) * 0.2 + 0.8;
+            
+            // 外圈 - 淡绿色光环
+            ctx.strokeStyle = `rgba(0, 255, 136, ${pulseIntensity * 0.7})`;
+            ctx.lineWidth = 3;
+            ctx.setLineDash([15, 8]);
+            ctx.beginPath();
+            ctx.arc(safeZone.x, safeZone.y, safeZoneRadius, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            // 内圈 - 更亮的绿色
+            ctx.strokeStyle = `rgba(136, 255, 136, ${pulseIntensity * 0.9})`;
+            ctx.lineWidth = 2;
+            ctx.setLineDash([8, 5]);
+            ctx.beginPath();
+            ctx.arc(safeZone.x, safeZone.y, safeZoneRadius - 15, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            // 重置线条样式
+            ctx.setLineDash([]);
+            
+            // 绘制安全区填充（半透明）
+            const fillGradient = ctx.createRadialGradient(
+                safeZone.x, safeZone.y, 0,
+                safeZone.x, safeZone.y, safeZoneRadius
+            );
+            fillGradient.addColorStop(0, 'rgba(0, 255, 136, 0.1)');
+            fillGradient.addColorStop(0.7, 'rgba(0, 255, 136, 0.05)');
+            fillGradient.addColorStop(1, 'rgba(0, 255, 136, 0)');
+            
+            ctx.fillStyle = fillGradient;
+            ctx.beginPath();
+            ctx.arc(safeZone.x, safeZone.y, safeZoneRadius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 绘制守护怪物
+            const guardians = window.safeZoneSystem.getGuardians();
+            const nearbyGuardian = guardians.find(guardian => {
+                const distance = Math.sqrt(
+                    Math.pow(guardian.x - safeZone.x, 2) + Math.pow(guardian.y - safeZone.y, 2)
+                );
+                return distance <= 100; // 守护怪物在安全区中心100像素范围内
+            });
+            
+            if (nearbyGuardian) {
+                const guardian = nearbyGuardian;
+                
+                // 守护怪物光环效果（进一步减少闪烁）
+                const guardianPulse = Math.sin(currentTime * 0.0015) * 0.15 + 0.85;
+                const glowRadius = guardian.radius + 20;
+                
+                const guardianGradient = ctx.createRadialGradient(
+                    guardian.x, guardian.y, guardian.radius,
+                    guardian.x, guardian.y, glowRadius
+                );
+                guardianGradient.addColorStop(0, `rgba(255, 215, 0, ${guardianPulse * 0.8})`);
+                guardianGradient.addColorStop(0.6, `rgba(255, 215, 0, ${guardianPulse * 0.4})`);
+                guardianGradient.addColorStop(1, 'rgba(255, 215, 0, 0)');
+                
+                ctx.fillStyle = guardianGradient;
+                ctx.beginPath();
+                ctx.arc(guardian.x, guardian.y, glowRadius, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 守护怪物主体（金色）
+                ctx.fillStyle = '#FFD700';
+                ctx.beginPath();
+                ctx.arc(guardian.x, guardian.y, guardian.radius, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 守护怪物边框
+                ctx.strokeStyle = '#FFA500';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(guardian.x, guardian.y, guardian.radius, 0, Math.PI * 2);
+                ctx.stroke();
+                
+                // 旋转光环效果（减慢旋转速度）
+                const rotationAngle = currentTime * 0.001;
+                for (let i = 0; i < 8; i++) {
+                    const angle = rotationAngle + (i / 8) * Math.PI * 2;
+                    const orbDistance = guardian.radius + 15;
+                    const orbX = guardian.x + Math.cos(angle) * orbDistance;
+                    const orbY = guardian.y + Math.sin(angle) * orbDistance;
+                    
+                    ctx.fillStyle = `rgba(255, 255, 0, ${guardianPulse})`;
+                    ctx.beginPath();
+                    ctx.arc(orbX, orbY, 4, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                
+                // 守护怪物等级显示
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = 'bold 16px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(`Lv.${guardian.level}`, guardian.x, guardian.y + 5);
+            }
+            
+            // 安全区中心标记
+            ctx.fillStyle = `rgba(0, 255, 136, ${pulseIntensity})`;
+            ctx.beginPath();
+            ctx.arc(safeZone.x, safeZone.y, 8, 0, Math.PI * 2);
             ctx.fill();
         }
     }
@@ -2040,6 +2189,7 @@ window.renderProjectiles = renderProjectiles;
 window.renderFriendlyBalls = renderFriendlyBalls;
 window.renderSpikeBalls = renderSpikeBalls;
 window.renderBubblePowerups = renderBubblePowerups;
+window.renderSafeZones = renderSafeZones;
 window.renderEffects = renderEffects;
 window.renderParticles = renderParticles;
 window.renderNumbers = renderNumbers;
@@ -2070,6 +2220,7 @@ if (typeof module !== 'undefined' && module.exports) {
         renderFriendlyBalls,
         renderSpikeBalls,
         renderBubblePowerups,
+        renderSafeZones,
         renderEffects,
         renderParticles,
         renderNumbers,

@@ -23,6 +23,10 @@
             <script src="debugLogger.js?v=4.0.0"></script>
             <script src="buffSystem.js?v=4.0.0"></script>
             <script src="debugPanel.js?v=4.0.0"></script>
+            <script src="damageTracker.js?v=4.0.1"></script>
+            <script src="damageWindow.js?v=4.0.1"></script>
+            <script src="simpleDamageDisplay.js?v=1.0.0"></script>
+            <script src="safeZoneSystem.js?v=1.0.0"></script>
             <script src="gameLogic.js?v=4.0.0"></script>
             <script src="render.js?v=4.0.0"></script>
     
@@ -394,6 +398,26 @@
             // 初始化调试面板
             if (window.DebugPanel) {
                 game.debugPanel = new window.DebugPanel(game);
+            }
+            
+            // 初始化安全区系统
+            if (window.safeZoneSystem) {
+                console.log('安全区系统已初始化');
+            }
+            
+            // 初始化伤害记录系统
+            if (window.DamageTracker) {
+                window.damageTracker = new window.DamageTracker();
+            }
+            
+            // 初始化伤害记录窗口
+            if (window.DamageWindow) {
+                game.damageWindow = new window.DamageWindow(game.canvas, game.ctx);
+            }
+            
+            // 初始化简单伤害显示系统
+            if (window.SimpleDamageDisplay) {
+                window.simpleDamageDisplay = new window.SimpleDamageDisplay(game.canvas, game.ctx);
             }
             
             // 生成初始平台和所有地图元素

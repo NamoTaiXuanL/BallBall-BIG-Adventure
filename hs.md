@@ -1,5 +1,29 @@
 # 球球大冒险 - 函数定义记录
 
+## 新增函数 (v4.1.0)
+
+### SafeZoneSystem 类 (safeZoneSystem.js)
+- `constructor()` - 初始化安全区系统
+- `getRegionKey(x, y)` - 获取区域键值
+- `getRegionCenter(regionKey)` - 获取区域中心坐标
+- `recordKill(x, y)` - 记录击杀位置
+- `hasSafeZone(regionKey)` - 检查区域是否有安全区
+- `createSafeZone(regionKey)` - 创建安全区
+- `createGuardian(x, y)` - 创建守护怪物
+- `createSafeZoneEffect(x, y)` - 创建安全区特效
+- `isInSafeZone(x, y)` - 检查位置是否在安全区内
+- `getAvoidanceVector(x, y)` - 获取避开安全区的向量
+- `update(playerX, playerY)` - 主更新方法
+- `updateGuardians()` - 更新守护怪物
+- `getRegionKills(x, y)` - 获取区域击杀数量
+- `getSafeZones()` - 获取所有安全区
+- `getGuardians()` - 获取所有守护怪物
+- `cleanup(playerX, playerY, maxDistance)` - 清理远距离元素
+- `reset()` - 重置系统
+
+### 渲染函数 (render.js)
+- `renderSafeZones(ctx, camera)` - 渲染安全区和守护怪物
+
 ## 现有核心函数
 
 ### gameLogic.js

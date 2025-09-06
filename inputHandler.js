@@ -65,6 +65,13 @@ function handleKeyDown(e) {
     if (key === 'f') {
         activateDash();
     }
+    
+    // L键切换伤害记录窗口
+    if (key === 'l') {
+        if (window.damageTracker) {
+            window.damageTracker.toggleVisibility();
+        }
+    }
 }
 
 // 键盘释放事件处理
@@ -1153,7 +1160,25 @@ function createExplosion(x, y, radius, damage) {
         
         if (distance < radius) {
             const damageMultiplier = Math.max(0.2, 1 - distance / radius);
-            enemy.health -= Math.floor(damage * damageMultiplier);
+            const actualDamage = Math.floor(damage * damageMultiplier);
+            enemy.health -= actualDamage;
+            
+            // 记录爆炸伤害
+            if (window.damageTracker) {
+                window.damageTracker.recordDamage({
+                    damage: actualDamage,
+                    monsterType: enemy.type,
+                    damageSource: 'explosion',
+                    isCritical: false,
+                    x: enemy.x,
+                    y: enemy.y
+                });
+            }
+            
+            // 添加简单伤害显示
+            if (window.simpleDamageDisplay) {
+                window.simpleDamageDisplay.addDamageText(actualDamage, enemy.x, enemy.y, false);
+            }
             
             // 击退效果
             const knockback = 15 * damageMultiplier;

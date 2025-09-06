@@ -188,6 +188,11 @@ function spawnEnemyAtPoint(spawnPoint) {
     const x = spawnPoint.x + randomBetween(-50, 50);
     const y = spawnPoint.y + randomBetween(-50, 50);
     
+    // 检查是否在安全区内，如果在安全区内则不生成怪物
+    if (window.safeZoneSystem && window.safeZoneSystem.isInSafeZone(x, y)) {
+        return; // 安全区内不生成怪物
+    }
+    
     // 检查是否生成精英怪物
     const distanceToPlayer = Math.sqrt(
         Math.pow(x - game.player.x, 2) + 
@@ -236,14 +241,19 @@ function createEnemy(x, y, type) {
             damage: 10,
             stunned: 0,
             attackCooldown: 0,
-            state: 'idle',
+            state: 'idle', // idle, chase, flee, return
             detectionRange: 350,
             chaseRange: 1000,
             level: level,
             distanceFromSpawn: distanceFromSpawn,
             // v3.9.6: 变异标记
             isLarge: isLarge,
-            isFast: isFast
+            isFast: isFast,
+            // v4.1.7: 原始位置记录和回归机制
+            originalX: x,
+            originalY: y,
+            returnSpeed: 0.8, // 回归速度稍慢于追击速度
+            returnThreshold: 300 // 距离原位置超过此值时开始回归
         };
         
         // v3.9.6: 先应用等级缩放和buff，再调整类型属性
@@ -558,6 +568,11 @@ function update() {
     // 更新狂潮模式
     updateFrenzyMode();
     
+    // 更新安全区系统
+    if (window.safeZoneSystem) {
+        window.safeZoneSystem.update(game.player.x, game.player.y);
+    }
+    
     // 动态敌人生成
     updateEnemySpawning(performanceMultiplier);
     
@@ -641,6 +656,11 @@ function spawnEnemyNearPlayer() {
     const distance = randomBetween(400, 1600);
     const x = game.player.x + Math.cos(angle) * distance;
     const y = game.player.y + Math.sin(angle) * distance;
+    
+    // 检查是否在安全区内，如果在安全区内则不生成怪物
+    if (window.safeZoneSystem && window.safeZoneSystem.isInSafeZone(x, y)) {
+        return; // 安全区内不生成怪物
+    }
     
     // 检查是否生成精英怪物（使用正确的概率）
     const distanceToPlayer = Math.sqrt(
@@ -1035,6 +1055,23 @@ function createExplosion(x, y, radius, damage) {
         if (distance < radius) {
             enemy.health -= damage;
             
+            // 记录爆炸伤害
+            if (window.damageTracker) {
+                window.damageTracker.recordDamage({
+                    damage: damage,
+                    monsterType: enemy.type,
+                    damageSource: 'explosion',
+                    isCritical: false,
+                    x: enemy.x,
+                    y: enemy.y
+                });
+            }
+            
+            // 添加简单伤害显示
+            if (window.simpleDamageDisplay) {
+                window.simpleDamageDisplay.addDamageText(damage, enemy.x, enemy.y, false);
+            }
+            
             // 击退效果
             const knockback = 15;
             const angle = Math.atan2(dy, dx);
@@ -1230,6 +1267,23 @@ function updateWindFireWheels() {
             if (distance < game.player.windFireWheels.orbSize + enemy.radius) {
                 // 对敌人造成伤害
                 enemy.health -= game.player.windFireWheels.damage;
+                
+                // 记录风火轮伤害
+                if (window.damageTracker) {
+                    window.damageTracker.recordDamage({
+                        damage: game.player.windFireWheels.damage,
+                        monsterType: enemy.type,
+                        damageSource: 'windFireWheels',
+                        isCritical: false,
+                        x: enemy.x,
+                        y: enemy.y
+                    });
+                }
+                
+                // 添加简单伤害显示
+                if (window.simpleDamageDisplay) {
+                    window.simpleDamageDisplay.addDamageText(game.player.windFireWheels.damage, enemy.x, enemy.y, false);
+                }
                 
                 // 击退效果
                 const knockbackForce = 10;
@@ -1497,6 +1551,23 @@ function updateLaser() {
                 // 对敌人造成伤害
                 enemy.health -= totalDamage;
                 
+                // 记录激光伤害
+                if (window.damageTracker) {
+                    window.damageTracker.recordDamage({
+                        damage: Math.round(totalDamage),
+                        monsterType: enemy.type,
+                        damageSource: 'laser',
+                        isCritical: isCritical,
+                        x: enemy.x,
+                        y: enemy.y
+                    });
+                }
+                
+                // 添加简单伤害显示
+                if (window.simpleDamageDisplay) {
+                    window.simpleDamageDisplay.addDamageText(Math.round(totalDamage), enemy.x, enemy.y, isCritical);
+                }
+                
                 // 暴击时在屏幕中央显示
                 if (isCritical) {
                     createCriticalDisplay(Math.floor(totalDamage));
@@ -1665,8 +1736,24 @@ function updateEnemyByType(enemy) {
 function updateRotatingEnemy(enemy) {
     enemy.rotationAngle += enemy.rotationSpeed;
     if (enemy.companion) {
-        enemy.companion.x = enemy.x + Math.cos(enemy.rotationAngle) * enemy.orbitRadius;
-        enemy.companion.y = enemy.y + Math.sin(enemy.rotationAngle) * enemy.orbitRadius;
+        const newX = enemy.x + Math.cos(enemy.rotationAngle) * enemy.orbitRadius;
+        const newY = enemy.y + Math.sin(enemy.rotationAngle) * enemy.orbitRadius;
+        
+        // 检查伙伴球新位置是否在安全区内
+        let canMove = true;
+        if (window.safeZoneSystem) {
+            const inSafeZone = window.safeZoneSystem.isInSafeZone(newX, newY);
+            if (inSafeZone) {
+                canMove = false;
+            }
+        }
+        
+        // 如果可以移动且不在安全区内，则更新位置
+        if (canMove) {
+            enemy.companion.x = newX;
+            enemy.companion.y = newY;
+        }
+        // 如果不能移动，保持当前位置不变
     }
 }
 
@@ -1679,30 +1766,59 @@ function updateTeleportEnemy(enemy) {
         if (enemy.chargeTime >= enemy.maxChargeTime) {
             // 执行传送 - 70%概率向玩家方向传送，30%概率随机传送
             let targetX, targetY;
-            if (Math.random() < 0.7) {
-                // 向玩家方向传送
-                const playerDx = game.player.x - enemy.x;
-                const playerDy = game.player.y - enemy.y;
-                const playerDistance = Math.sqrt(playerDx * playerDx + playerDy * playerDy);
-                const teleportDistance = randomBetween(150, Math.min(enemy.teleportRange, playerDistance * 0.8));
-                const angle = Math.atan2(playerDy, playerDx);
-                targetX = enemy.x + Math.cos(angle) * teleportDistance;
-                targetY = enemy.y + Math.sin(angle) * teleportDistance;
-            } else {
-                // 随机传送
-                const angle = Math.random() * Math.PI * 2;
-                const distance = randomBetween(100, enemy.teleportRange);
-                targetX = enemy.x + Math.cos(angle) * distance;
-                targetY = enemy.y + Math.sin(angle) * distance;
+            let attempts = 0;
+            let validTarget = false;
+            
+            // 尝试找到安全的传送位置
+            while (attempts < 10 && !validTarget) {
+                if (Math.random() < 0.7) {
+                    // 向玩家方向传送
+                    const playerDx = game.player.x - enemy.x;
+                    const playerDy = game.player.y - enemy.y;
+                    const playerDistance = Math.sqrt(playerDx * playerDx + playerDy * playerDy);
+                    const teleportDistance = randomBetween(150, Math.min(enemy.teleportRange, playerDistance * 0.8));
+                    const angle = Math.atan2(playerDy, playerDx);
+                    targetX = enemy.x + Math.cos(angle) * teleportDistance;
+                    targetY = enemy.y + Math.sin(angle) * teleportDistance;
+                } else {
+                    // 随机传送
+                    const angle = Math.random() * Math.PI * 2;
+                    const distance = randomBetween(100, enemy.teleportRange);
+                    targetX = enemy.x + Math.cos(angle) * distance;
+                    targetY = enemy.y + Math.sin(angle) * distance;
+                }
+                
+                // 检查传送目标位置是否在安全区内
+                if (window.safeZoneSystem) {
+                    const targetInSafeZone = window.safeZoneSystem.isInSafeZone(targetX, targetY);
+                    if (!targetInSafeZone) {
+                        validTarget = true;
+                    }
+                } else {
+                    validTarget = true;
+                }
+                attempts++;
             }
-            enemy.x = targetX;
-            enemy.y = targetY;
+            
+            // 如果找到有效位置则传送，否则取消传送
+            if (validTarget) {
+                enemy.x = targetX;
+                enemy.y = targetY;
+            }
             
             enemy.isCharging = false;
             enemy.chargeTime = 0;
             enemy.teleportCooldown = 0;
         }
     } else if (enemy.teleportCooldown >= enemy.teleportInterval) {
+        // 检查玩家是否在安全区内，如果是则不开始传送
+        if (window.safeZoneSystem) {
+            const playerInSafeZone = window.safeZoneSystem.isInSafeZone(game.player.x, game.player.y);
+            if (playerInSafeZone) {
+                return; // 玩家在安全区内，不传送
+            }
+        }
+        
         enemy.isCharging = true;
         enemy.chargeTime = 0;
     }
@@ -1731,30 +1847,54 @@ function updateSnakeEnemy(enemy) {
             const segDy = targetY - segment.y;
             const segDistance = Math.sqrt(segDx * segDx + segDy * segDy);
             
-            // 如果距离超过节点间距，则移动节点
+            // 安全区检查：如果蛇身节点要移动到安全区内，则停止移动
+            let canMove = true;
             if (segDistance > enemy.segmentSpacing) {
                 const moveRatio = (segDistance - enemy.segmentSpacing) / segDistance;
-                segment.x += segDx * moveRatio;
-                segment.y += segDy * moveRatio;
+                const newX = segment.x + segDx * moveRatio;
+                const newY = segment.y + segDy * moveRatio;
+                
+                // 检查新位置是否在安全区内
+                if (window.safeZoneSystem) {
+                    const inSafeZone = window.safeZoneSystem.isInSafeZone(newX, newY);
+                    if (inSafeZone) {
+                        canMove = false;
+                    }
+                }
+                
+                // 如果可以移动且不在安全区内，则移动节点
+                if (canMove) {
+                    segment.x = newX;
+                    segment.y = newY;
+                }
             }
             
-            // 检测蛇身节点与玩家的碰撞
+            // 检测蛇身节点与玩家的碰撞（只有在玩家不在安全区内时才造成伤害）
             const segPlayerDx = game.player.x - segment.x;
             const segPlayerDy = game.player.y - segment.y;
             const segPlayerDistance = Math.sqrt(segPlayerDx * segPlayerDx + segPlayerDy * segPlayerDy);
             
             if (segPlayerDistance < segment.radius + game.player.radius) {
-                // 蛇身碰撞伤害
-                game.player.health -= 3;
+                // 检查玩家是否在安全区内
+                let playerInSafeZone = false;
+                if (window.safeZoneSystem) {
+                    playerInSafeZone = window.safeZoneSystem.isInSafeZone(game.player.x, game.player.y);
+                }
                 
-                // 轻微击退
-                const knockback = 5;
-                game.player.dx += Math.cos(Math.atan2(segPlayerDy, segPlayerDx)) * knockback;
-                game.player.dy += Math.sin(Math.atan2(segPlayerDy, segPlayerDx)) * knockback;
-                
-                // 增加怒气
-                game.player.hitRageMultiplier = 1.5;
-                game.player.lastHitTime = 120;
+                // 只有玩家不在安全区内才造成伤害
+                if (!playerInSafeZone) {
+                    // 蛇身碰撞伤害
+                    game.player.health -= 3;
+                    
+                    // 轻微击退
+                    const knockback = 5;
+                    game.player.dx += Math.cos(Math.atan2(segPlayerDy, segPlayerDx)) * knockback;
+                    game.player.dy += Math.sin(Math.atan2(segPlayerDy, segPlayerDx)) * knockback;
+                    
+                    // 增加怒气
+                    game.player.hitRageMultiplier = 1.5;
+                    game.player.lastHitTime = 120;
+                }
             }
         }
     }
@@ -1838,8 +1978,27 @@ function updateEliteEnemy(enemy) {
     // 更新环绕小球
     for (const orb of enemy.orbs) {
         orb.angle += 0.02;
-        orb.x = enemy.x + Math.cos(orb.angle) * orb.orbitDistance;
-        orb.y = enemy.y + Math.sin(orb.angle) * orb.orbitDistance;
+        const newX = enemy.x + Math.cos(orb.angle) * orb.orbitDistance;
+        const newY = enemy.y + Math.sin(orb.angle) * orb.orbitDistance;
+        
+        // 检查轨道球新位置是否在安全区内
+        let canMove = true;
+        if (window.safeZoneSystem) {
+            const inSafeZone = window.safeZoneSystem.isInSafeZone(newX, newY);
+            if (inSafeZone) {
+                canMove = false;
+            }
+        }
+        
+        // 如果可以移动且不在安全区内，则更新位置
+        if (canMove) {
+            orb.x = newX;
+            orb.y = newY;
+        } else {
+            // 如果不能移动，保持当前位置
+            orb.x = orb.x || enemy.x;
+            orb.y = orb.y || enemy.y;
+        }
     }
     
     // 引力场效果
@@ -1919,6 +2078,56 @@ function updateEnemyMovement(enemy) {
         enemy.attackCooldown -= game.deltaTime;
     }
     
+    // 安全区检查：如果怪物在安全区范围内，强制停止移动
+    let inSafeZone = false;
+    if (window.safeZoneSystem) {
+        inSafeZone = window.safeZoneSystem.isInSafeZone(enemy.x, enemy.y);
+        if (inSafeZone) {
+            // 强制停止移动和追击
+            enemy.state = 'idle';
+            enemy.dx = 0;
+            enemy.dy = 0;
+            return; // 直接返回，不移动
+        }
+        
+        // 检查玩家是否在安全区内，如果是则不追击
+        const playerInSafeZone = window.safeZoneSystem.isInSafeZone(game.player.x, game.player.y);
+        if (playerInSafeZone) {
+            // 玩家在安全区内，怪物回到原位置
+            const distanceToOriginal = Math.sqrt(
+                Math.pow(enemy.x - enemy.originalX, 2) + 
+                Math.pow(enemy.y - enemy.originalY, 2)
+            );
+            
+            if (distanceToOriginal > 20) { // 距离原位置超过20像素时回归
+                enemy.state = 'return';
+                const returnAngle = Math.atan2(enemy.originalY - enemy.y, enemy.originalX - enemy.x);
+                enemy.dx = Math.cos(returnAngle) * enemy.speed * enemy.returnSpeed;
+                enemy.dy = Math.sin(returnAngle) * enemy.speed * enemy.returnSpeed;
+            } else {
+                enemy.state = 'idle';
+                enemy.dx = 0;
+                enemy.dy = 0;
+            }
+            
+            enemy.x += enemy.dx;
+            enemy.y += enemy.dy;
+            return;
+        }
+        
+        // 检查是否应该避开安全区
+        const avoidanceVector = window.safeZoneSystem.getAvoidanceVector(enemy.x, enemy.y);
+        if (avoidanceVector) {
+            // 强制远离安全区
+            enemy.state = 'flee';
+            enemy.dx = avoidanceVector.x * enemy.speed * 1.2;
+            enemy.dy = avoidanceVector.y * enemy.speed * 1.2;
+            enemy.x += enemy.dx;
+            enemy.y += enemy.dy;
+            return;
+        }
+    }
+    
     const dx = game.player.x - enemy.x;
     const dy = game.player.y - enemy.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
@@ -1933,6 +2142,12 @@ function updateEnemyMovement(enemy) {
         chaseRange *= 1.8;      // 追击范围增加80%
         speed *= 1.5;           // 移动速度增加50%
     }
+    
+    // 检查是否需要回归原位置
+    const distanceToOriginal = Math.sqrt(
+        Math.pow(enemy.x - enemy.originalX, 2) + 
+        Math.pow(enemy.y - enemy.originalY, 2)
+    );
     
     // AI行为
     if (distance < detectionRange) {
@@ -1949,7 +2164,12 @@ function updateEnemyMovement(enemy) {
             enemy.state = 'chase';
         }
     } else if (distance > chaseRange) {
-        enemy.state = 'idle';
+        // 如果距离原位置太远，回归原位置
+        if (distanceToOriginal > enemy.returnThreshold) {
+            enemy.state = 'return';
+        } else {
+            enemy.state = 'idle';
+        }
     }
     
     // 根据状态行动
@@ -1963,6 +2183,18 @@ function updateEnemyMovement(enemy) {
         const angle = Math.atan2(dy, dx);
         enemy.dx = -Math.cos(angle) * speed * 0.8;
         enemy.dy = -Math.sin(angle) * speed * 0.8;
+    } else if (enemy.state === 'return') {
+        // v4.1.7: 回归原位置
+        const returnAngle = Math.atan2(enemy.originalY - enemy.y, enemy.originalX - enemy.x);
+        enemy.dx = Math.cos(returnAngle) * speed * enemy.returnSpeed;
+        enemy.dy = Math.sin(returnAngle) * speed * enemy.returnSpeed;
+        
+        // 如果接近原位置，停止移动
+        if (distanceToOriginal < 20) {
+            enemy.state = 'idle';
+            enemy.dx = 0;
+            enemy.dy = 0;
+        }
     } else {
         // 空闲状态，减速
         enemy.dx *= 0.95;
@@ -1994,6 +2226,15 @@ function updateEnemyCollisions(enemy, index) {
 function handlePlayerEnemyCollision(enemy) {
     // 检查攻击冷却
     if (enemy.attackCooldown > 0) {
+        return;
+    }
+    
+    // 安全区保护：如果玩家在安全区内，完全免疫伤害
+    if (window.safeZoneSystem && window.safeZoneSystem.isInSafeZone(game.player.x, game.player.y)) {
+        // 在安全区内显示保护提示
+        if (Math.random() < 0.1) { // 10%概率显示提示，避免刷屏
+            createFloatingText(game.player.x, game.player.y - 30, "安全区保护", "#00ff00", 60, 1.2);
+        }
         return;
     }
     
@@ -2045,6 +2286,23 @@ function handleEnemyProjectileCollision(enemy, projectile, projectileIndex) {
     // 创建伤害数值显示
     createDamageNumber(enemy.x, enemy.y, damage, isCritical);
     
+    // 记录伤害数据
+    if (window.damageTracker) {
+        window.damageTracker.recordDamage({
+            damage: damage,
+            monsterType: enemy.type,
+            damageSource: projectile.type || 'projectile',
+            isCritical: isCritical,
+            x: enemy.x,
+            y: enemy.y
+        });
+    }
+    
+    // 添加简单伤害显示
+    if (window.simpleDamageDisplay) {
+        window.simpleDamageDisplay.addDamageText(damage, enemy.x, enemy.y, isCritical);
+    }
+    
     // 移除投射物
     ObjectPool.recycleProjectile(projectile);
     game.projectiles.splice(projectileIndex, 1);
@@ -2078,6 +2336,11 @@ function handleEnemyDeath(enemy, index) {
     
     // 更新附近生成点的击杀统计（用于区域冷却）
     updateSpawnPointKillStats(enemy.x, enemy.y);
+    
+    // 安全区系统：记录击杀位置
+    if (window.safeZoneSystem) {
+        window.safeZoneSystem.recordKill(enemy.x, enemy.y);
+    }
     
     // 检查buff掉落
     if (game.buffSystem && game.buffSystem.checkBuffDrop) {
@@ -2243,6 +2506,44 @@ function updateProjectiles() {
         
         if (hitBrick) continue;
         
+        // 敌人投射物与玩家碰撞检测
+        if (projectile.owner === 'enemy') {
+            const dx = projectile.x - game.player.x;
+            const dy = projectile.y - game.player.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance < projectile.radius + game.player.radius) {
+                // v4.1.7: 安全区保护 - 玩家在安全区内免疫投射物伤害
+                if (window.safeZoneSystem && window.safeZoneSystem.isInSafeZone(game.player.x, game.player.y)) {
+                    // 在安全区内显示保护提示
+                    if (Math.random() < 0.2) { // 20%概率显示提示
+                        createFloatingText(game.player.x, game.player.y - 30, "安全区保护", "#00ff00", 60, 1.2);
+                    }
+                    // 移除投射物但不造成伤害
+                    ObjectPool.recycleProjectile(projectile);
+                    game.projectiles.splice(i, 1);
+                    continue;
+                }
+                
+                // 造成伤害
+                game.player.health -= projectile.damage;
+                
+                // 创建伤害数值显示
+                createDamageNumber(game.player.x, game.player.y, projectile.damage);
+                
+                // 击退效果
+                const angle = Math.atan2(dy, dx);
+                const knockback = 8;
+                game.player.dx += Math.cos(angle) * knockback;
+                game.player.dy += Math.sin(angle) * knockback;
+                
+                // 移除投射物
+                ObjectPool.recycleProjectile(projectile);
+                game.projectiles.splice(i, 1);
+                continue;
+            }
+        }
+        
         // 距离检查优化
         const dx = projectile.x - game.player.x;
         const dy = projectile.y - game.player.y;
@@ -2331,6 +2632,17 @@ function updateSpikedBalls() {
         
         // 与玩家碰撞检测
         if (checkCollision(spiked, game.player)) {
+            // v4.1.7: 安全区保护 - 玩家在安全区内免疫刺球伤害
+            if (window.safeZoneSystem && window.safeZoneSystem.isInSafeZone(game.player.x, game.player.y)) {
+                // 在安全区内显示保护提示
+                if (Math.random() < 0.2) { // 20%概率显示提示
+                    createFloatingText(game.player.x, game.player.y - 30, "安全区保护", "#00ff00", 60, 1.2);
+                }
+                // 移除刺球但不造成伤害
+                game.spikedBalls.splice(i, 1);
+                continue;
+            }
+            
             game.player.health -= spiked.damage;
             
             // 创建伤害数值显示
@@ -2518,6 +2830,11 @@ function preSpawnMonstersAtPoint(spawnPoint) {
         const offsetY = randomBetween(-150, 150);
         const enemyX = spawnPoint.x + offsetX;
         const enemyY = spawnPoint.y + offsetY;
+        
+        // 检查是否在安全区内，如果在安全区内则跳过这个怪物
+        if (window.safeZoneSystem && window.safeZoneSystem.isInSafeZone(enemyX, enemyY)) {
+            continue; // 安全区内不生成怪物
+        }
         
         // 选择敌人类型，包含精英怪物生成逻辑
         let enemyType;
