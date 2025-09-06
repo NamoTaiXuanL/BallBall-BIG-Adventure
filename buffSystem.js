@@ -451,10 +451,7 @@ class BuffSystem {
         
         console.log(`[DEBUG] applyLevelScaling开始: 坐标(${enemy.x}, ${enemy.y}), level=${enemy.level}, distanceFromSpawn=${enemy.distanceFromSpawn}`);
         
-        // 计算距离血量加成
-        this.applyDistanceHealthBonus(enemy);
-        
-        console.log(`[DEBUG] applyDistanceHealthBonus后: level=${enemy.level}, distanceFromSpawn=${enemy.distanceFromSpawn}`);
+        console.log(`[DEBUG] 开始等级强化前: level=${enemy.level}, distanceFromSpawn=${enemy.distanceFromSpawn}`);
         
         if (!enemy.level || enemy.level < 1) {
             const warningMsg = `等级无效，跳过强化: level=${enemy.level}`;
@@ -511,6 +508,10 @@ class BuffSystem {
         enemy.maxHealth = enemy.health;
         
         console.log(`血量强化: ${originalHealth} -> ${enemy.health} (倍数: ${healthMultiplier})`);
+        
+        // 在等级强化后应用距离血量加成
+        this.applyDistanceHealthBonus(enemy);
+        
         console.log(`[DEBUG] applyLevelScaling完成: level=${enemy.level}, distanceFromSpawn=${enemy.distanceFromSpawn}`);
         
         // 攻击力强化：每级增加5%攻击力（极平缓提升，避免秒杀玩家）

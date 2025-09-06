@@ -48,6 +48,30 @@
 - `createExplosion(x, y, radius, damage)` - 创建爆炸效果
 - `createDamageNumber(x, y, damage, isCritical)` - 创建伤害数字显示
 - `createExperienceNumber(x, y, exp)` - 创建经验数字显示
+
+## 新增函数 (v4.2.0)
+
+### NoiseSystem 类 (noiseSystem.js)
+- `constructor()` - 初始化噪波系统，设置配置参数
+- `generateSeedTable(size)` - 生成随机种子表
+- `noise(x, y)` - 基础Perlin噪波函数
+- `fade(t)` - 平滑插值函数
+- `lerp(a, b, t)` - 线性插值函数
+- `fractalNoise(x, y, octaves, scale)` - 分形噪波（多层噪波叠加）
+- `getMonsterDensity(x, y)` - 获取指定位置的怪物密度（0-1）
+- `getMonsterLevel(x, y)` - 获取指定位置的怪物等级（v4.3.0: 支持无限等级）
+- `shouldSpawnMonster(x, y)` - 判断指定位置是否应该生成怪物
+- `getDensityType(x, y)` - 获取区域密度类型（none/low/medium/high）
+- `getNoiseVisualization(centerX, centerY, width, height, resolution)` - 获取噪波可视化数据
+
+### 修改的函数 (gameLogic.js)
+- `createEnemy(x, y, type)` - v4.3.0: 重构体型缩放系统，支持等级无限增长和随机体型变异
+- `preSpawnMonstersAtPoint(spawnPoint)` - 使用噪波系统判定生成区域和密度
+- `generateNewSpawnPoints()` - 使用噪波系统确定生成点密度类型
+- `spawnEnemyNearPlayer()` - 添加噪波系统检查避免在空旷区域生成
+
+### 修改的函数 (render.js)
+- `renderEnemies(ctx, viewLeft, viewRight, viewTop, viewBottom)` - v4.3.0: 添加高级怪物圆环指示器和体型变异视觉提示
 - `createFloatingText(x, y, text, color)` - 创建浮动文本
 - `createCriticalDisplay(damage)` - 创建暴击显示
 - `checkCollision(obj1, obj2)` - 检查碰撞

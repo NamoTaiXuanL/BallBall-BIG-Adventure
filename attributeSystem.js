@@ -20,8 +20,8 @@ class AttributeSystem {
             experience: 0       // 经验获取增加值
         };
         
-        // 从本地存储加载属性数据
-        this.loadAttributes();
+        // v4.3.6: 不再从本地存储加载，每次页面刷新都重置为0
+        console.log('属性数据已重置为初始值');
         
         console.log('属性增加系统初始化完成');
     }
@@ -72,7 +72,7 @@ class AttributeSystem {
     resetAttribute(attributeName) {
         if (this.attributes.hasOwnProperty(attributeName)) {
             this.attributes[attributeName] = 0;
-            this.saveAttributes();
+            // v4.3.6: 不再调用saveAttributes
             console.log(`属性 ${attributeName} 已重置`);
         }
     }
@@ -84,40 +84,24 @@ class AttributeSystem {
         Object.keys(this.attributes).forEach(key => {
             this.attributes[key] = 0;
         });
-        this.saveAttributes();
+        // v4.3.6: 不再调用saveAttributes
         console.log('所有属性已重置');
     }
     
     /**
-     * 保存属性数据到本地存储
+     * 保存属性数据到本地存储 - v4.3.6: 移除持久化存储
      */
     saveAttributes() {
-        try {
-            localStorage.setItem('ballAdventure_attributes', JSON.stringify(this.attributes));
-        } catch (error) {
-            console.warn('保存属性数据失败:', error);
-        }
+        // v4.3.6: 不再保存到localStorage，属性数据仅在当前会话有效
+        console.log('属性数据不再持久化存储');
     }
     
     /**
-     * 从本地存储加载属性数据
+     * 从本地存储加载属性数据 - v4.3.6: 移除持久化存储
      */
     loadAttributes() {
-        try {
-            const saved = localStorage.getItem('ballAdventure_attributes');
-            if (saved) {
-                const loadedAttributes = JSON.parse(saved);
-                // 合并已保存的属性，保持新属性的默认值
-                Object.keys(this.attributes).forEach(key => {
-                    if (loadedAttributes.hasOwnProperty(key)) {
-                        this.attributes[key] = loadedAttributes[key];
-                    }
-                });
-                console.log('属性数据加载成功');
-            }
-        } catch (error) {
-            console.warn('加载属性数据失败:', error);
-        }
+        // v4.3.6: 不再从localStorage加载，属性保持初始值0
+        console.log('属性数据不再持久化加载，保持初始值:', this.attributes);
     }
     
     /**

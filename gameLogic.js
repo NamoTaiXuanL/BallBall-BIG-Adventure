@@ -216,13 +216,46 @@ function spawnEnemyAtPoint(spawnPoint) {
 // 创建敌人
 function createEnemy(x, y, type) {
     try {
-        // v3.9.6: 计算距离和等级
+        // v4.2.0: 使用噪波系统计算等级
         const distanceFromSpawn = Math.sqrt(x * x + y * y);
-        const level = Math.max(1, Math.floor(distanceFromSpawn / 1000));
+        const level = window.noiseSystem ? window.noiseSystem.getMonsterLevel(x, y) : Math.max(1, Math.floor(distanceFromSpawn / 1000));
         
-        // v3.9.6: 体积和速度变异
-        const isLarge = Math.random() < 0.15; // 15%概率超大个体
-        const isFast = Math.random() < 0.1;   // 10%概率高速个体
+        // v4.3.3: 基于等级的体型缩放系统（修复100级以上继续增长）
+        const baseRadius = 10; // 基础半径
+        let scaledRadius;
+        
+        if (level <= 50) {
+            // 1-50级：体型随等级增长到峰值
+            const growthRate = 0.2; // 每级增加0.2半径
+            scaledRadius = baseRadius + (level - 1) * growthRate;
+        } else if (level <= 100) {
+            // 50-100级：体型逐渐缩小回到基础大小
+            const maxRadius = baseRadius + 49 * 0.2; // 50级时的最大半径
+            const shrinkProgress = (level - 50) / 50; // 0到1的缩小进度
+            scaledRadius = maxRadius - (maxRadius - baseRadius) * shrinkProgress;
+        } else {
+            // 100级以上：循环体型变化（100-150级变大，150级后变小，如此循环）
+            const cycleLength = 50; // 每50级为一个循环
+            const cyclePosition = (level - 100) % cycleLength; // 在当前循环中的位置
+            const growthRate = 0.15; // 每级变化0.15半径
+            
+            if (cyclePosition < 25) {
+                // 前25级：体型增长
+                scaledRadius = baseRadius + cyclePosition * growthRate;
+            } else {
+                // 后25级：体型缩小
+                const shrinkProgress = (cyclePosition - 25) / 25; // 0到1的缩小进度
+                const maxCycleRadius = baseRadius + 24 * growthRate; // 循环中的最大半径
+                scaledRadius = maxCycleRadius - (maxCycleRadius - baseRadius) * shrinkProgress;
+            }
+        }
+        
+        // v4.3.0: 同等级怪物随机体型变化（以原体型为上限向下缩小）
+        const sizeVariation = 0.3 + Math.random() * 0.7; // 0.3-1.0倍变化
+        const finalRadius = Math.max(8, scaledRadius * sizeVariation); // 最小半径8
+        
+        // v3.9.6: 速度变异（保留原有逻辑）
+        const isFast = Math.random() < 0.1; // 10%概率高速个体
         
         // 基础速度
         const baseSpeed = getEnemyBaseSpeed(type);
@@ -233,12 +266,15 @@ function createEnemy(x, y, type) {
             y: y,
             dx: 0,
             dy: 0,
-            radius: isLarge ? 35 : 20,
-            health: isLarge ? 40 : 20,
-            maxHealth: isLarge ? 40 : 20,
+            radius: finalRadius,
+            baseRadius: baseRadius, // 记录基础半径用于计算
+            scaledRadius: scaledRadius, // 记录等级缩放后的半径
+            sizeVariation: sizeVariation, // 记录体型变异倍数
+            health: Math.floor(20 + level * 2), // 血量基于等级，不受体型影响
+            maxHealth: Math.floor(20 + level * 2),
             type: type,
             speed: isFast ? baseSpeed * 1.8 : baseSpeed,
-            damage: 10,
+            damage: Math.floor(10 + level * 1), // 伤害基于等级，不受体型影响
             stunned: 0,
             attackCooldown: 0,
             state: 'idle', // idle, chase, flee, return
@@ -246,8 +282,9 @@ function createEnemy(x, y, type) {
             chaseRange: 1000,
             level: level,
             distanceFromSpawn: distanceFromSpawn,
-            // v3.9.6: 变异标记
-            isLarge: isLarge,
+            // v4.3.0: 高级怪物标记（50级以上）
+            isHighLevel: level > 50,
+            // v3.9.6: 速度变异标记
             isFast: isFast,
             // v4.1.7: 原始位置记录和回归机制
             originalX: x,
@@ -267,10 +304,9 @@ function createEnemy(x, y, type) {
                 // red类型保持基础属性，不做额外调整
                 break;
             case 'largered':
-                enemy.radius = 40;
-                // 在原有血量基础上乘以4倍（80/20=4）
-                enemy.health *= 4;
-                enemy.maxHealth *= 4;  // 同步更新maxHealth，保持强化效果
+                // v4.3.3: 保持体型缩放效果，在finalRadius基础上放大2倍
+                enemy.radius = finalRadius * 2;
+                // 血量和伤害保持基于等级的计算，不重新计算
                 enemy.speed = baseSpeed * 0.7;
                 break;
             case 'rotating':
@@ -293,10 +329,9 @@ function createEnemy(x, y, type) {
                 enemy.segmentCount = 3;
                 break;
             case 'yellow':
-                enemy.radius = 15;
-                // 在原有血量基础上乘以0.75倍（15/20=0.75）
-                enemy.health *= 0.75;
-                enemy.maxHealth *= 0.75;  // 同步更新maxHealth，保持强化效果
+                // v4.3.3: 保持体型缩放效果，在finalRadius基础上缩小到75%
+                enemy.radius = finalRadius * 0.75;
+                // 血量和伤害保持基于等级的计算，不重新计算
                 enemy.speed = baseSpeed * 1.5;
                 break;
             case 'blue':
@@ -306,9 +341,9 @@ function createEnemy(x, y, type) {
                 // white类型保持基础属性，不做额外调整
                 break;
             case 'black':
-                enemy.radius *= 1.5;
-                enemy.health *= 2;
-                enemy.maxHealth = enemy.health;
+                // v4.3.3: 保持体型缩放效果，在finalRadius基础上放大1.5倍
+                enemy.radius = finalRadius * 1.5;
+                // 血量和伤害保持基于等级的计算，不重新计算
                 break;
             case 'control':
                 // control类型保持基础属性，不做额外调整
@@ -466,29 +501,30 @@ function applyEnemyTypeProperties(enemy) {
             const eliteVariants = ['graviton', 'destroyer', 'guardian', 'vortex'];
             enemy.eliteType = eliteVariants[Math.floor(Math.random() * eliteVariants.length)];
             
-            // 根据子类型设置特殊属性
+            // 根据子类型设置特殊属性，引力场半径根据体积调整
+            const baseGravityRadius = enemy.radius * 8; // 基础引力场半径为体积的8倍
             switch(enemy.eliteType) {
                 case 'graviton': // 引力型
-                    enemy.gravityFieldRadius = 350;
+                    enemy.gravityFieldRadius = baseGravityRadius * 1.4; // 引力型引力场更大
                     enemy.gravityStrength = 1.2;
                     enemy.orbCount = 4;
                     break;
                 case 'destroyer': // 破坏型
-                    enemy.gravityFieldRadius = 250;
+                    enemy.gravityFieldRadius = baseGravityRadius * 1.0; // 标准引力场
                     enemy.gravityStrength = 0.8;
                     enemy.damage *= 1.5;
                     enemy.bigBulletInterval = 180;
                     enemy.orbCount = 6;
                     break;
                 case 'guardian': // 防御型
-                    enemy.gravityFieldRadius = 300;
+                    enemy.gravityFieldRadius = baseGravityRadius * 1.2; // 稍大引力场
                     enemy.gravityStrength = 1.0;
                     enemy.health *= 1.5;
                     enemy.maxHealth = enemy.health;
                     enemy.orbCount = 3;
                     break;
                 case 'vortex': // 漩涡型
-                    enemy.gravityFieldRadius = 400;
+                    enemy.gravityFieldRadius = baseGravityRadius * 1.6; // 最大引力场
                     enemy.gravityStrength = 1.5;
                     enemy.speed *= 1.3;
                     enemy.orbCount = 5;
@@ -593,6 +629,9 @@ function update() {
         game.buffSystem.update();
     }
     
+    // 更新玩家属性界面系统 - v4.4.0
+
+    
     // 检查玩家升级
     checkLevelUp();
 }
@@ -656,6 +695,11 @@ function spawnEnemyNearPlayer() {
     const distance = randomBetween(400, 1600);
     const x = game.player.x + Math.cos(angle) * distance;
     const y = game.player.y + Math.sin(angle) * distance;
+    
+    // v4.2.0: 使用噪波系统检查是否应该生成怪物
+    if (window.noiseSystem && !window.noiseSystem.shouldSpawnMonster(x, y)) {
+        return; // 噪波系统判定不生成
+    }
     
     // 检查是否在安全区内，如果在安全区内则不生成怪物
     if (window.safeZoneSystem && window.safeZoneSystem.isInSafeZone(x, y)) {
@@ -2338,9 +2382,9 @@ function handleEnemyDeath(enemy, index) {
     // 更新附近生成点的击杀统计（用于区域冷却）
     updateSpawnPointKillStats(enemy.x, enemy.y);
     
-    // 安全区系统：记录击杀位置
-    if (window.safeZoneSystem) {
-        window.safeZoneSystem.recordKill(enemy.x, enemy.y);
+    // 安全区系统：记录击杀位置 - v4.2.0: 传递玩家坐标
+    if (window.safeZoneSystem && game.player) {
+        window.safeZoneSystem.recordKill(enemy.x, enemy.y, game.player.x, game.player.y);
     }
     
     // 检查buff掉落
@@ -2835,19 +2879,35 @@ function updateSpawnPointKillStats(enemyX, enemyY) {
     }
 }
 
-// 预生成怪物函数
+// v4.2.0: 预生成怪物函数 - 集成噪波系统
 function preSpawnMonstersAtPoint(spawnPoint) {
     if (spawnPoint.preSpawned) return;
     
+    // v4.2.0: 使用噪波系统重新计算密度
+    if (window.noiseSystem) {
+        const noiseDensity = window.noiseSystem.getMonsterDensity(spawnPoint.x, spawnPoint.y);
+        if (noiseDensity === 0) {
+            spawnPoint.preSpawned = true;
+            return; // 噪波系统判定为无怪物区域
+        }
+        // 根据噪波密度更新生成点密度类型
+        spawnPoint.density = window.noiseSystem.getDensityType(spawnPoint.x, spawnPoint.y);
+    }
+    
     const preSpawnCount = spawnPoint.density === 'high' ? randomBetween(3, 6) : 
                          spawnPoint.density === 'medium' ? randomBetween(2, 4) : 
-                         randomBetween(1, 3);
+                         spawnPoint.density === 'low' ? randomBetween(1, 3) : 0;
     
     for (let i = 0; i < preSpawnCount; i++) {
         const offsetX = randomBetween(-150, 150);
         const offsetY = randomBetween(-150, 150);
         const enemyX = spawnPoint.x + offsetX;
         const enemyY = spawnPoint.y + offsetY;
+        
+        // v4.2.0: 使用噪波系统检查是否应该生成怪物
+        if (window.noiseSystem && !window.noiseSystem.shouldSpawnMonster(enemyX, enemyY)) {
+            continue; // 噪波系统判定不生成
+        }
         
         // 检查是否在安全区内，如果在安全区内则跳过这个怪物
         if (window.safeZoneSystem && window.safeZoneSystem.isInSafeZone(enemyX, enemyY)) {
@@ -2932,6 +2992,19 @@ function generateNewSpawnPoints() {
             }
             
             if (!tooClose) {
+                // v4.2.0: 使用噪波系统确定密度类型
+                let densityType;
+                if (window.noiseSystem) {
+                    densityType = window.noiseSystem.getDensityType(x, y);
+                    // 如果噪波系统判定为无怪物区域，跳过此生成点
+                    if (densityType === 'none') {
+                        continue;
+                    }
+                } else {
+                    // 回退到原有逻辑
+                    densityType = densityRoll < 0.3 ? 'high' : (densityRoll < 0.7 ? 'medium' : 'low');
+                }
+                
                 const spawnPoint = {
                     x: x,
                     y: y,
@@ -2940,7 +3013,7 @@ function generateNewSpawnPoints() {
                     cooldownTimer: 0,
                     enemiesSpawned: 0,
                     lastActivationTime: 0,
-                    density: densityRoll < 0.3 ? 'high' : (densityRoll < 0.7 ? 'medium' : 'low'),
+                    density: densityType,
                     // 新增：预生成和区域管理
                     preSpawned: false,
                     areaCooldown: 0,

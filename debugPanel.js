@@ -124,6 +124,7 @@ class DebugPanel {
                 html += `<strong>攻击力:</strong> ${Math.round(enemy.damage || 0)}<br>`;
                 html += `<strong>速度:</strong> ${Math.round(enemy.speed || 0)}<br>`;
                 html += `<strong>半径:</strong> ${Math.round(enemy.radius || 0)}<br>`;
+                html += `<strong>直径:</strong> ${Math.round((enemy.radius || 0) * 2)}<br>`;
                 html += `<strong>检测范围:</strong> ${Math.round(enemy.detectionRange || 0)}<br>`;
                 html += `<strong>追击范围:</strong> ${Math.round(enemy.chaseRange || 0)}<br>`;
                 html += `<strong>状态:</strong> ${enemy.state || 'unknown'}<br>`;
@@ -134,15 +135,15 @@ class DebugPanel {
                     html += `<strong>Buff:</strong> ${Object.keys(enemy.buffs).join(', ') || '无'}<br>`;
                 }
                 
-                // 计算理论血量加成
-                const healthBonus = Math.floor(distanceFromSpawn / 30000) * 300;
+                // 计算理论血量加成（与buffSystem.js保持一致）
+                const healthBonus = Math.floor(distanceFromSpawn / 10000) * 100;
                 if (healthBonus > 0) {
                     html += `<strong style="color: #ff6600;">理论血量加成:</strong> +${healthBonus}<br>`;
                 }
                 
                 // 计算理论等级强化（与buffSystem.js保持一致）
                 if (level > 1) {
-                    const levelMultiplier = 1 + (level - 1) * 2; // 线性增长，每级增加200%
+                    const levelMultiplier = 1 + (level - 1) * 1.0; // 线性增长，每级增加100%
                     html += `<strong style="color: #ff6600;">理论血量倍数:</strong> x${levelMultiplier.toFixed(2)}<br>`;
                 }
                 

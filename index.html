@@ -30,6 +30,8 @@
             <script src="coinSystem.js?v=4.2.0"></script>
             <script src="attributeSystem.js?v=4.3.0"></script>
             <script src="shopSystem.js?v=4.3.0"></script>
+            <script src="playerStatsSystem.js?v=4.3.1"></script>
+            <script src="noiseSystem.js?v=4.2.0"></script>
             <script src="gameLogic.js?v=4.0.0"></script>
             <script src="render.js?v=4.0.0"></script>
     
@@ -421,6 +423,16 @@
             // 初始化简单伤害显示系统
             if (window.SimpleDamageDisplay) {
                 window.simpleDamageDisplay = new window.SimpleDamageDisplay(game.canvas, game.ctx);
+            }
+            
+            // 初始化玩家属性界面系统 - v4.3.1
+            console.log('PlayerStatsSystem类存在:', !!window.PlayerStatsSystem);
+            if (window.PlayerStatsSystem) {
+                game.playerStatsSystem = new window.PlayerStatsSystem(game);
+                window.playerStatsSystem = game.playerStatsSystem;
+                console.log('playerStatsSystem初始化完成:', !!game.playerStatsSystem);
+            } else {
+                console.log('PlayerStatsSystem类未找到');
             }
             
             // 生成初始平台和所有地图元素

@@ -80,6 +80,19 @@ function handleKeyDown(e) {
         }
     }
     
+    // N键切换玩家属性界面
+    if (key === 'n') {
+        console.log('N键被按下');
+        console.log('game对象存在:', !!game);
+        console.log('game.playerStatsSystem存在:', !!game?.playerStatsSystem);
+        if (game && game.playerStatsSystem) {
+            console.log('调用playerStatsSystem.toggle()');
+            game.playerStatsSystem.toggle();
+        } else {
+            console.log('无法访问playerStatsSystem');
+        }
+    }
+    
     // 数字键购买商品（仅在商店打开时有效）
     if (window.shopSystem && window.shopSystem.isShopOpen) {
         const numKey = parseInt(key);
@@ -289,7 +302,11 @@ function activateLaser() {
 }
 
 // 初始化输入事件监听器
-function initInputHandlers() {
+function initInputHandlers(gameInstance, configInstance) {
+    // 将game和config设置为全局变量，供事件处理函数使用
+    window.game = gameInstance;
+    window.config = configInstance;
+    
     // 键盘事件
     document.addEventListener('keydown', handleKeyDown);
     document.addEventListener('keyup', handleKeyUp);

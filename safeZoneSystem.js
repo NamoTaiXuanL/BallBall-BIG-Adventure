@@ -33,6 +33,9 @@ class SafeZoneSystem {
         // 区域击杀统计 - 使用区域坐标作为键
         this.regionKills = new Map();
         
+        // v4.2.0: 全局击杀计数
+        this.globalKills = 0;
+        
         // 已生成的安全区列表
         this.safeZones = [];
         
@@ -56,26 +59,28 @@ class SafeZoneSystem {
         };
     }
     
-    // 记录击杀
-    recordKill(x, y) {
-        const regionKey = this.getRegionKey(x, y);
-        const currentKills = this.regionKills.get(regionKey) || 0;
-        const newKills = currentKills + 1;
-        
-        this.regionKills.set(regionKey, newKills);
+    // 记录击杀 - v4.2.0: 修改为基于玩家位置的概率生成
+    recordKill(x, y, playerX, playerY) {
+        // 全局击杀计数
+        if (!this.globalKills) {
+            this.globalKills = 0;
+        }
+        this.globalKills++;
         
         // 调试日志：击杀记录
-        console.log(`[安全区] 击杀记录: 区域${regionKey} 击杀数${newKills}/${SAFE_ZONE_CONFIG.KILLS_REQUIRED}`);
+        console.log(`[安全区] 全局击杀数: ${this.globalKills}/${SAFE_ZONE_CONFIG.KILLS_REQUIRED}`);
         
-        // v4.1.7: 检查是否达到安全区生成条件（新增多项检查）
-        if (newKills >= SAFE_ZONE_CONFIG.KILLS_REQUIRED && 
-            !this.hasSafeZone(regionKey) && 
-            this.canCreateSafeZone(regionKey)) {
-            console.log(`[安全区] 生成安全区: 区域${regionKey}`);
-            this.createSafeZone(regionKey);
+        // v4.2.0: 每100次击杀检查是否生成安全区
+        if (this.globalKills % SAFE_ZONE_CONFIG.KILLS_REQUIRED === 0) {
+            // 30%概率在玩家位置生成安全区
+            if (Math.random() < 0.3) {
+                this.createSafeZoneAtPlayer(playerX, playerY);
+            } else {
+                console.log(`[安全区] 击杀${this.globalKills}次，概率未触发安全区生成`);
+            }
         }
         
-        return newKills;
+        return this.globalKills;
     }
     
     // 检查区域是否已有安全区
@@ -110,7 +115,38 @@ class SafeZoneSystem {
         return true;
     }
     
-    // 创建安全区
+    // v4.2.0: 在玩家位置创建安全区
+    createSafeZoneAtPlayer(playerX, playerY) {
+        // 创建安全区对象
+        const safeZone = {
+            regionKey: `player_${Date.now()}`, // 使用时间戳作为唯一标识
+            x: playerX,
+            y: playerY,
+            radius: SAFE_ZONE_CONFIG.SAFE_ZONE_RADIUS,
+            createdAt: Date.now(),
+            active: true,
+            lastActiveCheck: Date.now()
+        };
+        
+        // 删除旧的安全区，保持最多3个
+        if (this.safeZones.length >= SAFE_ZONE_CONFIG.MAX_SAFE_ZONES) {
+            this.removeOldestSafeZone();
+        }
+        
+        this.safeZones.push(safeZone);
+        
+        // 创建守护怪物
+        this.createGuardian(playerX, playerY);
+        
+        // 创建安全区生成特效
+        this.createSafeZoneEffect(playerX, playerY);
+        
+        console.log(`[安全区] 在玩家位置(${playerX.toFixed(0)}, ${playerY.toFixed(0)})生成安全区`);
+        
+        return safeZone;
+    }
+    
+    // 创建安全区（保留原方法以兼容）
     createSafeZone(regionKey) {
         const center = this.getRegionCenter(regionKey);
         
@@ -139,6 +175,30 @@ class SafeZoneSystem {
         // 安全区已生成（移除console.log避免刷屏）
         
         return safeZone;
+    }
+    
+    // v4.2.0: 删除最旧的安全区
+    removeOldestSafeZone() {
+        if (this.safeZones.length === 0) return;
+        
+        // 找到最旧的安全区
+        let oldestZone = this.safeZones[0];
+        let oldestIndex = 0;
+        
+        for (let i = 1; i < this.safeZones.length; i++) {
+            if (this.safeZones[i].createdAt < oldestZone.createdAt) {
+                oldestZone = this.safeZones[i];
+                oldestIndex = i;
+            }
+        }
+        
+        // 移除最旧的安全区
+        this.safeZones.splice(oldestIndex, 1);
+        
+        // 移除对应的守护怪物
+        this.removeGuardiansInZone(oldestZone.x, oldestZone.y);
+        
+        console.log(`[安全区] 删除最旧安全区: ${oldestZone.regionKey}`);
     }
     
     // v4.1.7: 清理多余的安全区（保留最新的3个）
@@ -394,6 +454,7 @@ class SafeZoneSystem {
     // 重置系统
     reset() {
         this.regionKills.clear();
+        this.globalKills = 0; // v4.2.0: 重置全局击杀计数
         this.safeZones = [];
         this.guardians = [];
     }

@@ -792,10 +792,174 @@ function renderEnemies(ctx, viewLeft, viewRight, viewTop, viewBottom) {
     // 批量绘制普通敌人
     if (visibleEnemies.normal.length > 0) {
         for (const enemy of visibleEnemies.normal) {
+            // v4.3.3: 高级怪物圆环指示器（50级以上）
+            if (enemy.isHighLevel) {
+                if (enemy.level >= 100) {
+                    // 100级以上：升级圆环系统（厚度更大的圆环）
+                    const ringCount = Math.floor((enemy.level - 100) / 10) + 1; // 每10级增加一个圆环
+                    const baseRingRadius = enemy.radius + 25;
+                    const ringSpacing = 20; // 增加圆环间距
+                    
+                    for (let ringIndex = 0; ringIndex < ringCount; ringIndex++) {
+                        const ringRadius = baseRingRadius + ringIndex * ringSpacing;
+                        const ringAlpha = 0.9 - (ringIndex * 0.1);
+                        
+                        // 圆环颜色根据等级变化
+                        const hue = (enemy.level * 3) % 360;
+                        
+                        // 绘制厚度更大的圆环（使用填充圆环而非线条）
+                        const ringThickness = 8; // 圆环厚度
+                        const innerRadius = ringRadius - ringThickness / 2;
+                        const outerRadius = ringRadius + ringThickness / 2;
+                        
+                        // 创建圆环渐变
+                        const ringGradient = ctx.createRadialGradient(
+                            enemy.x, enemy.y, innerRadius,
+                            enemy.x, enemy.y, outerRadius
+                        );
+                        ringGradient.addColorStop(0, `hsla(${hue}, 80%, 60%, ${ringAlpha})`);
+                        ringGradient.addColorStop(0.5, `hsla(${hue}, 90%, 70%, ${ringAlpha * 1.2})`);
+                        ringGradient.addColorStop(1, `hsla(${hue}, 80%, 50%, ${ringAlpha * 0.8})`);
+                        
+                        // 绘制厚圆环
+                        ctx.fillStyle = ringGradient;
+                        ctx.beginPath();
+                        ctx.arc(enemy.x, enemy.y, outerRadius, 0, Math.PI * 2);
+                        ctx.arc(enemy.x, enemy.y, innerRadius, 0, Math.PI * 2, true);
+                        ctx.fill();
+                        
+                        // 圆环边框
+                        ctx.strokeStyle = `hsla(${hue}, 80%, 40%, ${ringAlpha})`;
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.arc(enemy.x, enemy.y, outerRadius, 0, Math.PI * 2);
+                        ctx.stroke();
+                        ctx.beginPath();
+                        ctx.arc(enemy.x, enemy.y, innerRadius, 0, Math.PI * 2);
+                        ctx.stroke();
+                        
+                        // 在圆环上绘制球体（每级增加一个球）
+                        const totalBallsForLevel = (enemy.level - 100) + 1; // 总球数等于超过100级的等级数+1
+                        const ballsOnThisRing = Math.min(24, Math.max(1, totalBallsForLevel - ringIndex * 24)); // 每个圆环最多24个球
+                        
+                        if (ballsOnThisRing > 0) {
+                            const ballRadius = 4; // 稍大的球体
+                            
+                            for (let ballIndex = 0; ballIndex < ballsOnThisRing; ballIndex++) {
+                                let angle = (ballIndex / ballsOnThisRing) * Math.PI * 2;
+                                
+                                // 根据怪物类型调整球的分布规律
+                                if (enemy.type === 'red' || enemy.type === 'largered') {
+                                    // 红色系怪物：球体聚集在上半部分
+                                    angle = Math.PI * 0.2 + (ballIndex / ballsOnThisRing) * Math.PI * 0.6;
+                                } else if (enemy.type === 'blue') {
+                                    // 蓝色系怪物：球体均匀分布（保持原角度）
+                                } else if (enemy.type === 'yellow') {
+                                    // 黄色系怪物：球体呈螺旋分布
+                                    angle += (ballIndex * 0.3) + (ringIndex * 0.5);
+                                } else if (enemy.type === 'black') {
+                                    // 黑色系怪物：球体聚集在四个角
+                                    const quadrant = Math.floor(ballIndex / (ballsOnThisRing / 4));
+                                    angle = quadrant * Math.PI * 0.5 + (ballIndex % (ballsOnThisRing / 4)) * 0.2;
+                                } else if (enemy.type === 'white') {
+                                    // 白色系怪物：球体呈对称分布
+                                    angle = (ballIndex % 2 === 0 ? 1 : -1) * (ballIndex / ballsOnThisRing) * Math.PI;
+                                }
+                                
+                                const ballX = enemy.x + Math.cos(angle) * ringRadius;
+                                const ballY = enemy.y + Math.sin(angle) * ringRadius;
+                                
+                                // 球体颜色根据类型和位置变化
+                                let ballColor;
+                                if (enemy.type === 'red' || enemy.type === 'largered') {
+                                    ballColor = `hsla(0, 90%, 70%, 0.95)`;
+                                } else if (enemy.type === 'blue') {
+                                    ballColor = `hsla(240, 90%, 70%, 0.95)`;
+                                } else if (enemy.type === 'yellow') {
+                                    ballColor = `hsla(60, 90%, 70%, 0.95)`;
+                                } else if (enemy.type === 'black') {
+                                    ballColor = `hsla(0, 0%, 20%, 0.95)`;
+                                } else {
+                                    ballColor = `hsla(${hue}, 80%, 70%, 0.95)`;
+                                }
+                                
+                                // 球体发光效果
+                                const ballGradient = ctx.createRadialGradient(
+                                    ballX, ballY, 0,
+                                    ballX, ballY, ballRadius * 1.5
+                                );
+                                ballGradient.addColorStop(0, ballColor);
+                                ballGradient.addColorStop(0.7, ballColor.replace('0.95', '0.7'));
+                                ballGradient.addColorStop(1, ballColor.replace('0.95', '0'));
+                                
+                                ctx.fillStyle = ballGradient;
+                                ctx.beginPath();
+                                ctx.arc(ballX, ballY, ballRadius * 1.5, 0, Math.PI * 2);
+                                ctx.fill();
+                                
+                                // 球体主体
+                                ctx.fillStyle = ballColor;
+                                ctx.beginPath();
+                                ctx.arc(ballX, ballY, ballRadius, 0, Math.PI * 2);
+                                ctx.fill();
+                                
+                                // 球体高光
+                                ctx.fillStyle = ballColor.replace('70%', '90%').replace('0.95', '0.8');
+                                ctx.beginPath();
+                                ctx.arc(ballX - ballRadius * 0.3, ballY - ballRadius * 0.3, ballRadius * 0.4, 0, Math.PI * 2);
+                                ctx.fill();
+                            }
+                        }
+                    }
+                } else {
+                    // 50-99级：原有的多层圆环系统
+                    const ringCount = Math.min(5, Math.floor((enemy.level - 50) / 10) + 1);
+                    const baseRingRadius = enemy.radius + Math.max(12, enemy.radius * 0.3);
+                    const ringSpacing = Math.max(8, enemy.radius * 0.2);
+                    
+                    for (let i = 0; i < ringCount; i++) {
+                        const ringRadius = baseRingRadius + i * ringSpacing;
+                        const ringAlpha = 0.7 - (i * 0.08);
+                        const ringPulse = Math.sin(performance.now() * 0.005 + i * 0.5) * 0.2 + 0.8;
+                        
+                        const hue = (enemy.level * 3) % 360;
+                        ctx.strokeStyle = `hsla(${hue}, 80%, 60%, ${ringAlpha * ringPulse})`;
+                        ctx.lineWidth = Math.max(2, 4 - i * 0.4);
+                        ctx.beginPath();
+                        ctx.arc(enemy.x, enemy.y, ringRadius, 0, Math.PI * 2);
+                        ctx.stroke();
+                    }
+                }
+                
+                // 高级怪物等级显示
+                ctx.fillStyle = '#FFD700';
+                ctx.font = `bold ${Math.max(10, Math.min(16, enemy.radius * 0.4))}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.fillText(enemy.level.toString(), enemy.x, enemy.y - enemy.radius - Math.max(15, enemy.radius * 0.4));
+            }
+            
+            // 绘制怪物主体
             ctx.fillStyle = config.colors[enemy.type + 'Enemy'];
             ctx.beginPath();
             ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
             ctx.fill();
+            
+            // v4.3.0: 体型变异视觉提示
+            if (enemy.sizeVariation > 0.8) {
+                // 超大个体边框（接近原体型）
+                ctx.strokeStyle = '#FF6B35';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
+                ctx.stroke();
+            } else if (enemy.sizeVariation < 0.5) {
+                // 超小个体边框
+                ctx.strokeStyle = '#4FC3F7';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
+                ctx.stroke();
+            }
         }
     }
     
@@ -1699,8 +1863,18 @@ function drawUI() {
             game.gameWidth / 2, 
             50
         );
-        
-        // 警告效果
+    }
+    
+    // 渲染玩家属性界面 - v4.4.0
+    if (game.playerStatsSystem) {
+        console.log('渲染玩家属性界面，visible状态:', game.playerStatsSystem.visible);
+        game.playerStatsSystem.render(ctx);
+    } else {
+        console.log('playerStatsSystem不存在，无法渲染');
+    }
+    
+    // 狂潮模式警告效果
+    if (game.frenzyMode.active) {
         const flash = Math.sin(Date.now() * 0.02) > 0;
         if (flash) {
             ctx.fillStyle = 'rgba(255, 0, 0, 0.1)';
@@ -1745,6 +1919,11 @@ function drawUI() {
     // 购买系统界面 - v4.3.0
     if (window.shopSystem && window.shopSystem.isShopOpen) {
         drawShopInterface();
+    }
+    
+    // 玩家属性界面 - v4.3.1
+    if (window.playerStatsSystem && window.playerStatsSystem.isVisible()) {
+        window.playerStatsSystem.render(ctx);
     }
 }
 

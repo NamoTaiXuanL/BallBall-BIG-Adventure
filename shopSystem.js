@@ -115,7 +115,8 @@ class ShopSystem {
         
         // 购买统计
         this.purchaseStats = {};
-        this.loadPurchaseStats();
+        // v4.3.6: 不再从本地存储加载购买统计，每次页面刷新都重置
+        console.log('购买统计已重置为初始值');
         
         console.log('购买系统初始化完成');
     }
@@ -280,37 +281,27 @@ class ShopSystem {
     }
     
     /**
-     * 保存购买统计
+     * 保存购买统计到本地存储 - v4.3.6: 移除持久化存储
      */
     savePurchaseStats() {
-        try {
-            localStorage.setItem('ballAdventure_purchaseStats', JSON.stringify(this.purchaseStats));
-        } catch (error) {
-            console.warn('保存购买统计失败:', error);
-        }
+        // v4.3.6: 不再保存到localStorage，购买统计仅在当前会话有效
+        console.log('购买统计不再持久化存储');
     }
     
     /**
-     * 加载购买统计
+     * 从本地存储加载购买统计 - v4.3.6: 移除持久化存储
      */
     loadPurchaseStats() {
-        try {
-            const saved = localStorage.getItem('ballAdventure_purchaseStats');
-            if (saved) {
-                this.purchaseStats = JSON.parse(saved);
-                console.log('购买统计加载成功');
-            }
-        } catch (error) {
-            console.warn('加载购买统计失败:', error);
-        }
+        // v4.3.6: 不再从localStorage加载，购买统计保持初始值
+        console.log('购买统计不再持久化加载，保持初始值:', this.purchaseStats);
     }
     
     /**
-     * 重置购买统计
+     * 重置购买统计 - v4.3.6: 移除持久化存储
      */
     resetPurchaseStats() {
         this.purchaseStats = {};
-        this.savePurchaseStats();
+        // v4.3.6: 不再调用savePurchaseStats
         console.log('购买统计已重置');
     }
 }

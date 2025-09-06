@@ -19,48 +19,33 @@ class CoinSystem {
     }
     
     /**
-     * 从本地存储加载金币数据
+     * 加载金币数据 - v4.3.6: 移除持久化存储
      */
     loadCoinData() {
-        try {
-            const savedData = localStorage.getItem('ballAdventure_coins');
-            if (savedData) {
-                const data = JSON.parse(savedData);
-                this.coins = data.coins || 0;
-                this.totalCoinsEarned = data.totalCoinsEarned || 0;
-                this.coinMultiplier = data.coinMultiplier || 1.0;
-            }
-        } catch (error) {
-            console.warn('加载金币数据失败:', error);
-            this.resetCoinData();
-        }
+        // v4.3.6: 不再从localStorage加载，每次页面刷新都重置为0
+        this.coins = 0;
+        this.totalCoinsEarned = 0;
+        this.coinMultiplier = 1.0;
+        console.log('金币数据已重置为初始值');
     }
     
     /**
-     * 保存金币数据到本地存储
+     * 保存金币数据 - v4.3.6: 移除持久化存储
      */
     saveCoinData() {
-        try {
-            const data = {
-                coins: this.coins,
-                totalCoinsEarned: this.totalCoinsEarned,
-                coinMultiplier: this.coinMultiplier,
-                lastSaved: Date.now()
-            };
-            localStorage.setItem('ballAdventure_coins', JSON.stringify(data));
-        } catch (error) {
-            console.warn('保存金币数据失败:', error);
-        }
+        // v4.3.6: 不再保存到localStorage，金币数据仅在当前会话有效
+        console.log('金币数据不再持久化存储');
     }
     
     /**
-     * 重置金币数据
+     * 重置金币数据 - v4.3.6: 移除持久化存储
      */
     resetCoinData() {
         this.coins = 0;
         this.totalCoinsEarned = 0;
         this.coinMultiplier = 1.0;
-        this.saveCoinData();
+        // v4.3.6: 不再调用saveCoinData
+        console.log('金币数据已重置');
     }
     
     /**
