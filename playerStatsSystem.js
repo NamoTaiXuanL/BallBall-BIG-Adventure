@@ -57,32 +57,50 @@ class PlayerStatsSystem {
     // 收集玩家基础属性数据
     getPlayerBasicStats() {
         const player = this.game.player;
+        
+        // 安全获取数值，防止NaN
+        const safeValue = (value, defaultValue) => {
+            return isNaN(value) ? defaultValue : (value || defaultValue);
+        };
+        
+        const level = safeValue(player.level, 1);
+        const exp = safeValue(player.exp, 0);
+        const expToNext = safeValue(player.expToNextLevel, 100);
+        const health = safeValue(player.health, 0);
+        const maxHealth = safeValue(player.maxHealth, 100);
+        const mana = safeValue(player.mana, 0);
+        const maxMana = safeValue(player.maxMana, 50);
+        const rage = safeValue(player.rage, 0);
+        const maxRage = safeValue(player.maxRage, 100);
+        const stamina = safeValue(player.stamina, 0);
+        const maxStamina = safeValue(player.maxStamina, 100);
+        
         return {
             // 基础属性
-            level: player.level || 1,
-            experience: player.exp || 0,
-            experienceToNext: player.expToNextLevel || 100,
-            experienceProgress: ((player.exp || 0) / (player.expToNextLevel || 100) * 100).toFixed(1),
+            level: level,
+            experience: exp,
+            experienceToNext: expToNext,
+            experienceProgress: ((exp / expToNext) * 100).toFixed(1),
             
             // 生命值系统
-            health: Math.floor(player.health || 0),
-            maxHealth: Math.floor(player.maxHealth || 100),
-            healthPercent: ((player.health || 0) / (player.maxHealth || 100) * 100).toFixed(1),
+            health: Math.floor(health),
+            maxHealth: Math.floor(maxHealth),
+            healthPercent: ((health / maxHealth) * 100).toFixed(1),
             
             // 魔力系统
-            mana: Math.floor(player.mana || 0),
-            maxMana: Math.floor(player.maxMana || 50),
-            manaPercent: ((player.mana || 0) / (player.maxMana || 50) * 100).toFixed(1),
+            mana: Math.floor(mana),
+            maxMana: Math.floor(maxMana),
+            manaPercent: ((mana / maxMana) * 100).toFixed(1),
             
             // 怒气系统
-            rage: Math.floor(player.rage || 0),
-            maxRage: Math.floor(player.maxRage || 100),
-            ragePercent: ((player.rage || 0) / (player.maxRage || 100) * 100).toFixed(1),
+            rage: Math.floor(rage),
+            maxRage: Math.floor(maxRage),
+            ragePercent: ((rage / maxRage) * 100).toFixed(1),
             
             // 精力系统
-            stamina: Math.floor(player.stamina || 0),
-            maxStamina: Math.floor(player.maxStamina || 100),
-            staminaPercent: ((player.stamina || 0) / (player.maxStamina || 100) * 100).toFixed(1)
+            stamina: Math.floor(stamina),
+            maxStamina: Math.floor(maxStamina),
+            staminaPercent: ((stamina / maxStamina) * 100).toFixed(1)
         };
     }
     

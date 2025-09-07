@@ -226,3 +226,46 @@
 - `renderPlayer(ctx)` - 新增日炎buff视觉效果
   - 新增功能: 红光闪烁效果、灼烧光环渲染、红色粒子效果
   - 新增功能: 玩家主体红光色调混合和红色边框效果
+
+## 新增函数 (v4.4.0)
+
+### FormSystem 类 (formSystem.js)
+- `constructor()` - 初始化形态系统，设置默认B形态
+- `getFormMultipliers()` - 获取当前形态的所有加成系数
+  - 返回值: {moveSpeed, bulletSpeed, bulletRange, bulletDamage, windFireWheelDamage, skillCost, damageTaken}
+- `switchForm(newForm)` - 切换到指定形态
+  - 参数: newForm ('A', 'B', 'C')
+  - 功能: 切换形态并创建粒子效果
+- `getCurrentForm()` - 获取当前形态
+  - 返回值: 当前形态字符串 ('A', 'B', 'C')
+- `createFormSwitchEffect(x, y, color)` - 创建形态切换粒子效果
+  - 参数: x, y (坐标), color (粒子颜色)
+
+### 游戏逻辑集成更新
+
+#### gameLogic.js
+- `handleEnemyProjectileCollision()` - 新增C形态爆炸效果
+  - 新增功能: C形态子弹击中时创建爆炸效果(60%伤害)
+  - 新增功能: 爆炸粒子效果和范围伤害计算
+- `activateWindFireWheels()` - 新增形态技能消耗加成
+  - 新增功能: 应用形态系统的技能消耗加成系数
+- `activateLaser()` - 新增形态技能消耗加成
+  - 新增功能: 应用形态系统的法力消耗加成系数
+- `updateLaser()` - 新增形态技能消耗加成
+  - 新增功能: 激光持续消耗应用形态加成系数
+- `handlePlayerEnemyCollision()` - 新增形态伤害减免
+  - 新增功能: 应用形态系统的受伤加成/减免系数
+- `updateWindFireWheels()` - 新增形态伤害加成
+  - 新增功能: 风火轮伤害应用形态加成系数
+
+#### playerStatsSystem.js
+- `collectPlayerStatsData()` - 新增形态显示
+  - 新增功能: 收集当前形态信息用于UI显示
+- `renderPlayerStats()` - 新增形态UI渲染
+  - 新增功能: 在状态面板显示当前形态
+
+#### inputHandler.js
+- `updatePlayer()` - 新增形态移动速度加成
+  - 新增功能: 应用形态系统的移动速度加成系数
+- `handlePlayerAttack()` - 新增形态子弹属性加成
+  - 新增功能: 应用射速、射程、伤害等形态加成系数

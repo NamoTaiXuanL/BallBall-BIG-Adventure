@@ -53,7 +53,7 @@ function handleKeyDown(e) {
     
     // X键激活风火轮技能
     if (key === 'x' && game.player.rage >= 15 && !game.player.windFireWheels.active) {
-        activateWindFireWheels();
+        activateWindFireWheelsInput();
     }
     
     // R键激活激光技能
@@ -130,9 +130,13 @@ function handleKeyUp(e) {
     else if (key === 'arrowdown') game.keys['s'] = false;
     else game.keys[key] = false;
     
-    // R键释放时停止激光
+    // R键释放时停止激光并设置冷却时间
     if (key === 'r') {
-        game.player.laser.active = false;
+        if (game.player.laser.active) {
+            game.player.laser.active = false;
+            // 设置冷却时间
+            game.player.laser.cooldownTimer = safeValue(game.player.laser.cooldown, 300);
+        }
     }
 }
 
@@ -157,35 +161,176 @@ function handleMouseUp(e) {
 }
 
 // 激活风火轮技能
-function activateWindFireWheels() {
-    if (game.player.rage < 15) return;  // 降低激活消耗从30到15
-    
-    game.player.rage -= 15;
-    game.player.windFireWheels.active = true;
-    game.player.windFireWheels.rotationAngle = 0;
-    
-    // 创建四个围绕玩家的圆球
-    game.player.windFireWheels.orbs = [];
-    for (let i = 0; i < 4; i++) {
-        const angle = (i * Math.PI * 2) / 4;
-        game.player.windFireWheels.orbs.push({
-            angle: angle,
-            x: 0,
-            y: 0
-        });
+function activateWindFireWheelsInput() {
+    // 安全值获取函数
+    function safeValue(value, defaultValue = 0) {
+        return (value !== undefined && value !== null && !isNaN(value)) ? value : defaultValue;
     }
     
-    // 生成激活粒子效果
-    for (let i = 0; i < 20; i++) {
+    // 应用形态系统技能消耗加成
+    const formMultipliers = window.formSystem ? window.formSystem.getFormMultipliers() : { skillCost: 1 };
+    const skillCost = safeValue(formMultipliers.skillCost, 1);
+    const rageCost = safeValue(game.player.windFireWheels.rageCost, 15);
+    const finalRageCost = Math.ceil(rageCost * skillCost);
+    
+    if (game.player.rage < finalRageCost || game.player.windFireWheels.cooldownTimer > 0) return;
+    
+    game.player.windFireWheels.active = true;
+    game.player.windFireWheels.duration = safeValue(game.player.windFireWheels.maxDuration, 300);
+    game.player.windFireWheels.cooldownTimer = safeValue(game.player.windFireWheels.cooldown, 600);
+    game.player.windFireWheels.rotation = 0; // 初始化旋转角度
+    game.player.rage -= finalRageCost;
+    
+    // 风火轮激活时立即解除所有控制状态
+    game.player.immobilized = false;
+    game.player.immobilizeTimer = 0;
+    game.player.isSlowed = false;
+    game.player.slowedTime = 0;
+    
+    // 风火轮激活粒子效果
+    for (let i = 0; i < 30; i++) {
         game.particles.push({
-            x: game.player.x,
-            y: game.player.y,
-            dx: randomBetween(-5, 5),
-            dy: randomBetween(-5, 5),
-            radius: randomBetween(3, 6),
-            color: '#FF6B35',
-            lifetime: 40
+            x: game.player.x + (Math.random() - 0.5) * 60,
+            y: game.player.y + (Math.random() - 0.5) * 60,
+            dx: (Math.random() - 0.5) * 15,
+            dy: (Math.random() - 0.5) * 15,
+            radius: Math.random() * 8 + 4,
+            color: `hsl(${Math.random() * 60 + 15}, 100%, 70%)`,
+            lifetime: 50
         });
+    }
+}
+
+// 更新风火轮技能
+function updateWindFireWheels() {
+    if (!game.player.windFireWheels.active) return;
+    
+    // 安全值获取函数
+    function safeValue(value, defaultValue = 0) {
+        return (value !== undefined && value !== null && !isNaN(value)) ? value : defaultValue;
+    }
+    
+    // 减少持续时间
+    game.player.windFireWheels.duration -= safeValue(game.deltaTime, 1);
+    
+    // 如果持续时间结束或怒气值为0，停用技能
+    if (game.player.windFireWheels.duration <= 0 || game.player.rage <= 0) {
+        game.player.windFireWheels.active = false;
+        game.player.windFireWheels.orbs = [];
+        return;
+    }
+    
+    // 持续消耗怒气
+    game.player.rage -= 0.2;
+    if (game.player.rage < 0) game.player.rage = 0;
+    
+    // 更新旋转角度
+    const rotationSpeed = safeValue(game.player.windFireWheels.rotationSpeed, 0.1);
+    game.player.windFireWheels.rotation += rotationSpeed;
+    
+    // 检查是否有三相之力buff
+    const hasTrinityForce = game.buffSystem && game.buffSystem.isBuffActive('trinityForce');
+    
+    // 根据buff状态决定风火轮数量和排列
+    const wheelCount = hasTrinityForce ? 3 : 4;
+    const angleStep = hasTrinityForce ? (Math.PI * 2 / 3) : (Math.PI / 2); // 三角形或正方形
+    
+    // 检测与敌人的碰撞
+    for (let i = 0; i < wheelCount; i++) {
+        const angle = game.player.windFireWheels.rotation + (i * angleStep);
+        const radius = safeValue(game.player.windFireWheels.radius, 80);
+        const orbX = game.player.x + Math.cos(angle) * radius;
+        const orbY = game.player.y + Math.sin(angle) * radius;
+        
+        // 检测与敌人的碰撞
+        for (let j = game.enemies.length - 1; j >= 0; j--) {
+            const enemy = game.enemies[j];
+            const dx = orbX - enemy.x;
+            const dy = orbY - enemy.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            const orbSize = safeValue(game.player.windFireWheels.orbSize, 15);
+            const enemyRadius = safeValue(enemy.radius, 10);
+            
+            if (distance < orbSize + enemyRadius) {
+                // 对敌人造成伤害（加上基础伤害增加值）
+                const baseDamage = safeValue(game.player.windFireWheels.damage, 20);
+                const attributeDamage = window.attributeSystem ? safeValue(window.attributeSystem.getAttribute('baseDamage'), 0) : 0;
+                let windFireDamage = baseDamage + attributeDamage;
+                
+                // 应用形态系统风火轮伤害加成
+                const formMultipliers = window.formSystem ? window.formSystem.getFormMultipliers() : { windFireDamage: 1 };
+                const damageMultiplier = safeValue(formMultipliers.windFireDamage, 1);
+                windFireDamage = Math.floor(windFireDamage * damageMultiplier);
+                
+                // 确保伤害值不为NaN
+                windFireDamage = safeValue(windFireDamage, 20);
+                
+                enemy.health -= windFireDamage;
+                
+                // 记录风火轮伤害
+                if (window.damageTracker) {
+                    window.damageTracker.recordDamage({
+                        damage: windFireDamage,
+                        monsterType: enemy.type,
+                        damageSource: 'windFireWheels',
+                        isCritical: false,
+                        x: enemy.x,
+                        y: enemy.y
+                    });
+                }
+                
+                // 添加简单伤害显示
+                if (window.simpleDamageDisplay) {
+                    window.simpleDamageDisplay.addDamageText(windFireDamage, enemy.x, enemy.y, false);
+                }
+                
+                // 击退效果
+                const knockbackForce = 10;
+                const knockbackAngle = Math.atan2(dy, dx);
+                enemy.dx += Math.cos(knockbackAngle) * knockbackForce;
+                enemy.dy += Math.sin(knockbackAngle) * knockbackForce;
+                
+                // 伤害数值显示
+                if (window.createDamageNumber) {
+                    window.createDamageNumber(enemy.x, enemy.y, windFireDamage);
+                }
+                
+                // 碰撞粒子效果
+                for (let k = 0; k < 5; k++) {
+                    game.particles.push({
+                        x: orbX,
+                        y: orbY,
+                        dx: randomBetween(-3, 3),
+                        dy: randomBetween(-3, 3),
+                        radius: randomBetween(2, 4),
+                        color: '#FF6B35',
+                        lifetime: 20
+                    });
+                }
+            }
+        }
+    }
+    
+    // 生成风火轮粒子效果
+    if (Math.random() < 0.3) {
+        const angle = game.player.windFireWheels.rotation;
+        const radius = safeValue(game.player.windFireWheels.radius, 80);
+        for (let i = 0; i < wheelCount; i++) {
+            const wheelAngle = angle + (i * angleStep);
+            const wheelX = game.player.x + Math.cos(wheelAngle) * radius;
+            const wheelY = game.player.y + Math.sin(wheelAngle) * radius;
+            
+            game.particles.push({
+                x: wheelX,
+                y: wheelY,
+                dx: Math.cos(wheelAngle) * 3,
+                dy: Math.sin(wheelAngle) * 3,
+                radius: Math.random() * 4 + 2,
+                color: `hsl(${Math.random() * 60 + 15}, 100%, 70%)`,
+                lifetime: 20
+            });
+        }
     }
 }
 
@@ -276,12 +421,22 @@ function checkCollisionAtPosition(x, y, radius) {
     return false;
 }
 
+// 激光技能安全值处理函数
+function safeValue(value, defaultValue = 0) {
+    return (typeof value === 'number' && !isNaN(value) && isFinite(value)) ? value : defaultValue;
+}
+
 // 激活激光技能
 function activateLaser() {
-    if (game.player.mana < game.player.laser.minMana) return;
+    const currentMana = safeValue(game.player.mana, 0);
+    const minMana = safeValue(game.player.laser.minMana, 20);
+    if (currentMana < minMana) return;
+    
+    // 检查冷却时间
+    if (game.player.laser.cooldownTimer > 0) return;
     
     game.player.laser.active = true;
-    // 移除冷却时间限制，只要有魔力就能释放
+    // 冷却时间将在松开R键时设置
     
     // 计算激光起点（玩家中心）
     game.player.laser.startX = game.player.x;
@@ -327,7 +482,8 @@ window.handleKeyUp = handleKeyUp;
 window.handleMouseDown = handleMouseDown;
 window.handleMouseUp = handleMouseUp;
 window.handleMouseMove = handleMouseMove;
-window.activateWindFireWheels = activateWindFireWheels;
+window.activateWindFireWheelsInput = activateWindFireWheelsInput;
+window.updateWindFireWheels = updateWindFireWheels;
 window.activateDash = activateDash;
 window.activateLaser = activateLaser;
 window.checkCollisionAtPosition = checkCollisionAtPosition;
@@ -365,13 +521,26 @@ function updatePlayer() {
     const isControlled = game.player.immobilized && !(game.player.windFireWheels && game.player.windFireWheels.active);
     
     if (!isControlled) {
+        // 计算最终移动速度（包含属性加成和形态加成）
+        let finalSpeed = config.player.speed;
+        
+        // 应用属性系统的移动速度加成
+        if (window.attributeSystem) {
+            finalSpeed += window.attributeSystem.getAttribute('moveSpeed');
+        }
+        
+        // 应用形态系统的移动速度倍数
+        if (window.formSystem) {
+            finalSpeed = window.formSystem.getModifiedMoveSpeed(finalSpeed);
+        }
+        
         if (game.keys['a'] || game.keys['arrowleft']) {
             if (!game.player.isDashing) {
-                game.player.dx = -config.player.speed;
+                game.player.dx = -finalSpeed;
             }
         } else if (game.keys['d'] || game.keys['arrowright']) {
             if (!game.player.isDashing) {
-                game.player.dx = config.player.speed;
+                game.player.dx = finalSpeed;
             }
         } else {
             game.player.dx *= config.friction;
@@ -778,7 +947,12 @@ function handlePlayerAttack() {
         const hasTrinityForce = game.buffSystem && game.buffSystem.isBuffActive('trinityForce');
         
         if (hasTrinityForce) {
-            // 三相之力：发射三股子弹（中间一股 + 左右各偏转30度）
+            // 三相之力：发射三股子弹（中间一股 + 左右各偏转30度） - 应用形态系统加成
+            const formMultipliers = window.formSystem ? window.formSystem.getFormMultipliers() : { bulletSpeed: 1, bulletRange: 1, damage: 1 };
+            const finalBulletSpeed = 10 * formMultipliers.bulletSpeed;
+            const baseDamage = game.player.attackPower + (window.attributeSystem ? window.attributeSystem.getAttribute('baseDamage') : 0);
+            const finalDamage = Math.floor(baseDamage * formMultipliers.damage);
+            const finalLifetime = Math.min(120 * formMultipliers.bulletRange, Math.floor(distance / 8) * formMultipliers.bulletRange + 30);
             const angles = [angle, angle - Math.PI / 6, angle + Math.PI / 6]; // 0度、-30度、+30度
             
             for (let i = 0; i < angles.length; i++) {
@@ -786,30 +960,38 @@ function handlePlayerAttack() {
                 const projectile = {
                     x: game.player.x,
                     y: game.player.y,
-                    dx: Math.cos(bulletAngle) * 10,
-                    dy: Math.sin(bulletAngle) * 10,
+                    dx: Math.cos(bulletAngle) * finalBulletSpeed,
+                    dy: Math.sin(bulletAngle) * finalBulletSpeed,
                     radius: 8,
-                    damage: game.player.attackPower + (window.attributeSystem ? window.attributeSystem.getAttribute('baseDamage') : 0),
+                    damage: finalDamage,
                     owner: 'player',
-                    lifetime: Math.min(120, Math.floor(distance / 8) + 30),
+                    lifetime: finalLifetime,
                     active: true,
-                    isTrinityForce: true
+                    isTrinityForce: true,
+                    isExplosive: window.formSystem && window.formSystem.getCurrentForm() === 'C' // C形态子弹爆炸
                 };
                 
                 game.projectiles.push(projectile);
             }
         } else {
-            // 普通射击
+            // 普通射击 - 应用形态系统加成
+            const formMultipliers = window.formSystem ? window.formSystem.getFormMultipliers() : { bulletSpeed: 1, bulletRange: 1, damage: 1 };
+            const finalBulletSpeed = 10 * formMultipliers.bulletSpeed;
+            const baseDamage = game.player.attackPower + (window.attributeSystem ? window.attributeSystem.getAttribute('baseDamage') : 0);
+            const finalDamage = Math.floor(baseDamage * formMultipliers.damage);
+            const finalLifetime = Math.min(120 * formMultipliers.bulletRange, Math.floor(distance / 8) * formMultipliers.bulletRange + 30);
+            
             const projectile = {
                 x: game.player.x,
                 y: game.player.y,
-                dx: Math.cos(angle) * 10,
-                dy: Math.sin(angle) * 10,
+                dx: Math.cos(angle) * finalBulletSpeed,
+                dy: Math.sin(angle) * finalBulletSpeed,
                 radius: 8,
-                damage: game.player.attackPower + (window.attributeSystem ? window.attributeSystem.getAttribute('baseDamage') : 0),
+                damage: finalDamage,
                 owner: 'player',
-                lifetime: Math.min(120, Math.floor(distance / 8) + 30),
-                active: true
+                lifetime: finalLifetime,
+                active: true,
+                isExplosive: window.formSystem && window.formSystem.getCurrentForm() === 'C' // C形态子弹爆炸
             };
             
             game.projectiles.push(projectile);
@@ -1291,7 +1473,8 @@ if (typeof module !== 'undefined' && module.exports) {
         handleMouseDown,
         handleMouseUp,
         handleMouseMove,
-        activateWindFireWheels,
+        activateWindFireWheelsInput,
+        updateWindFireWheels,
         activateDash,
         activateLaser,
         checkCollisionAtPosition,

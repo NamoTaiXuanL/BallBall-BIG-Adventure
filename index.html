@@ -32,6 +32,7 @@
             <script src="shopSystem.js?v=4.3.0"></script>
             <script src="playerStatsSystem.js?v=4.3.1"></script>
             <script src="noiseSystem.js?v=4.2.0"></script>
+            <script src="formSystem.js?v=4.4.0"></script>
             <script src="gameLogic.js?v=4.0.0"></script>
             <script src="render.js?v=4.0.0"></script>
     
@@ -433,6 +434,17 @@
                 console.log('playerStatsSystem初始化完成:', !!game.playerStatsSystem);
             } else {
                 console.log('PlayerStatsSystem类未找到');
+            }
+            
+            // 初始化形态系统 - v4.4.0
+            console.log('FormSystem类存在:', !!window.FormSystem);
+            if (window.FormSystem && !window.formSystem) {
+                window.formSystem = new window.FormSystem();
+                console.log('formSystem初始化完成:', !!window.formSystem);
+            } else if (window.formSystem) {
+                console.log('formSystem已存在');
+            } else {
+                console.log('FormSystem类未找到');
             }
             
             // 生成初始平台和所有地图元素

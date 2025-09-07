@@ -779,9 +779,21 @@ function updateSpikedBallSpawning() {
 
 // 资源恢复系统
 function updateResourceRecovery() {
+    // 确保所有玩家属性都是有效数字
+    if (isNaN(game.player.health)) game.player.health = game.player.maxHealth || 100;
+    if (isNaN(game.player.mana)) game.player.mana = 0;
+    if (isNaN(game.player.rage)) game.player.rage = 0;
+    if (isNaN(game.player.stamina)) game.player.stamina = game.player.maxStamina || 100;
+    if (isNaN(game.player.maxHealth)) game.player.maxHealth = 100;
+    if (isNaN(game.player.maxMana)) game.player.maxMana = 50;
+    if (isNaN(game.player.maxRage)) game.player.maxRage = 100;
+    if (isNaN(game.player.maxStamina)) game.player.maxStamina = 100;
+    if (isNaN(game.player.hitRageMultiplier)) game.player.hitRageMultiplier = 1;
+    
     // 精力值恢复
     if (game.player.stamina < game.player.maxStamina) {
-        game.player.stamina += config.player.staminaRecovery;
+        const staminaRecovery = config.player.staminaRecovery || 1;
+        game.player.stamina += staminaRecovery;
         if (game.player.stamina > game.player.maxStamina) {
             game.player.stamina = game.player.maxStamina;
         }
@@ -805,7 +817,8 @@ function updateResourceRecovery() {
     
     // 更新被击中后的怒气加成时间
     if (game.player.lastHitTime > 0) {
-        game.player.lastHitTime -= game.deltaTime;
+        const deltaTime = game.deltaTime || 16; // 默认16ms
+        game.player.lastHitTime -= deltaTime;
         if (game.player.lastHitTime <= 0) {
             game.player.hitRageMultiplier = 1.0; // 重置怒气倍率
         }
@@ -1238,152 +1251,31 @@ function randomBetween(min, max) {
 }
 
 // 激活风火轮技能
-function activateWindFireWheels() {
-    if (game.player.rage < game.player.windFireWheels.rageCost || game.player.windFireWheels.cooldownTimer > 0) return;
-    
-    game.player.windFireWheels.active = true;
-    game.player.windFireWheels.duration = game.player.windFireWheels.maxDuration;
-    game.player.windFireWheels.cooldownTimer = game.player.windFireWheels.cooldown;
-    game.player.windFireWheels.rotation = 0; // 初始化旋转角度
-    game.player.rage -= game.player.windFireWheels.rageCost;
-    
-    // 风火轮激活时立即解除所有控制状态
-    game.player.immobilized = false;
-    game.player.immobilizeTimer = 0;
-    game.player.isSlowed = false;
-    game.player.slowedTime = 0;
-    
-    // 风火轮激活粒子效果
-    for (let i = 0; i < 30; i++) {
-        game.particles.push({
-            x: game.player.x + (Math.random() - 0.5) * 60,
-            y: game.player.y + (Math.random() - 0.5) * 60,
-            dx: (Math.random() - 0.5) * 15,
-            dy: (Math.random() - 0.5) * 15,
-            radius: Math.random() * 8 + 4,
-            color: `hsl(${Math.random() * 60 + 15}, 100%, 70%)`,
-            lifetime: 50
-        });
-    }
-}
+// 风火轮激活函数已移至inputHandler.js
 
-// 更新风火轮技能
-function updateWindFireWheels() {
-    if (!game.player.windFireWheels.active) return;
-    
-    // 减少持续时间
-    game.player.windFireWheels.duration -= game.deltaTime;
-    
-    // 如果持续时间结束或怒气值为0，停用技能
-    if (game.player.windFireWheels.duration <= 0 || game.player.rage <= 0) {
-        game.player.windFireWheels.active = false;
-        game.player.windFireWheels.orbs = [];
-        return;
-    }
-    
-    // 持续消耗怒气
-    game.player.rage -= 0.2;
-    if (game.player.rage < 0) game.player.rage = 0;
-    
-    // 更新旋转角度
-    game.player.windFireWheels.rotation += game.player.windFireWheels.rotationSpeed;
-    
-    // 检查是否有三相之力buff
-    const hasTrinityForce = game.buffSystem && game.buffSystem.isBuffActive('trinityForce');
-    
-    // 根据buff状态决定风火轮数量和排列
-    const wheelCount = hasTrinityForce ? 3 : 4;
-    const angleStep = hasTrinityForce ? (Math.PI * 2 / 3) : (Math.PI / 2); // 三角形或正方形
-    
-    // 检测与敌人的碰撞
-    for (let i = 0; i < wheelCount; i++) {
-        const angle = game.player.windFireWheels.rotation + (i * angleStep);
-        const orbX = game.player.x + Math.cos(angle) * game.player.windFireWheels.radius;
-        const orbY = game.player.y + Math.sin(angle) * game.player.windFireWheels.radius;
-        
-        // 检测与敌人的碰撞
-        for (let j = game.enemies.length - 1; j >= 0; j--) {
-            const enemy = game.enemies[j];
-            const dx = orbX - enemy.x;
-            const dy = orbY - enemy.y;
-            const distance = Math.sqrt(dx * dx + dy * dy);
-            
-            if (distance < game.player.windFireWheels.orbSize + enemy.radius) {
-                // 对敌人造成伤害（加上基础伤害增加值）
-                const windFireDamage = game.player.windFireWheels.damage + (window.attributeSystem ? window.attributeSystem.getAttribute('baseDamage') : 0);
-                enemy.health -= windFireDamage;
-                
-                // 记录风火轮伤害
-                if (window.damageTracker) {
-                    window.damageTracker.recordDamage({
-                        damage: windFireDamage,
-                        monsterType: enemy.type,
-                        damageSource: 'windFireWheels',
-                        isCritical: false,
-                        x: enemy.x,
-                        y: enemy.y
-                    });
-                }
-                
-                // 添加简单伤害显示
-                if (window.simpleDamageDisplay) {
-                    window.simpleDamageDisplay.addDamageText(windFireDamage, enemy.x, enemy.y, false);
-                }
-                
-                // 击退效果
-                const knockbackForce = 10;
-                const knockbackAngle = Math.atan2(dy, dx);
-                enemy.dx += Math.cos(knockbackAngle) * knockbackForce;
-                enemy.dy += Math.sin(knockbackAngle) * knockbackForce;
-                
-                // 伤害数值显示
-                createDamageNumber(enemy.x, enemy.y, windFireDamage);
-                
-                // 碰撞粒子效果
-                for (let k = 0; k < 5; k++) {
-                    game.particles.push({
-                        x: orbX,
-                        y: orbY,
-                        dx: randomBetween(-3, 3),
-                        dy: randomBetween(-3, 3),
-                        radius: randomBetween(2, 4),
-                        color: '#FF6B35',
-                        lifetime: 20
-                    });
-                }
-            }
-        }
-    }
-    
-    // 生成风火轮粒子效果
-    if (Math.random() < 0.3) {
-        const angle = game.player.windFireWheels.rotation;
-        for (let i = 0; i < wheelCount; i++) {
-            const wheelAngle = angle + (i * angleStep);
-            const wheelX = game.player.x + Math.cos(wheelAngle) * game.player.windFireWheels.radius;
-            const wheelY = game.player.y + Math.sin(wheelAngle) * game.player.windFireWheels.radius;
-            
-            game.particles.push({
-                x: wheelX,
-                y: wheelY,
-                dx: Math.cos(wheelAngle) * 3,
-                dy: Math.sin(wheelAngle) * 3,
-                radius: Math.random() * 4 + 2,
-                color: `hsl(${Math.random() * 60 + 15}, 100%, 70%)`,
-                lifetime: 20
-            });
-        }
-    }
-    
-    // 风火轮只通过旋转的火球造成伤害，不应有额外的范围伤害
-}
+// 风火轮更新函数已移至inputHandler.js
 
 // 激活激光技能
 function activateLaser() {
-    if (game.player.mana < game.player.laser.minMana) return;
+    // 安全值处理函数
+    function safeValue(value, defaultValue = 0) {
+        return (typeof value === 'number' && !isNaN(value) && isFinite(value)) ? value : defaultValue;
+    }
+    
+    // 应用形态系统技能消耗加成
+    const formMultipliers = window.formSystem ? window.formSystem.getFormMultipliers() : { skillCost: 1 };
+    const skillCostMultiplier = safeValue(formMultipliers.skillCost, 1);
+    const baseMinMana = safeValue(game.player.laser.minMana, 20);
+    const finalMinMana = Math.ceil(baseMinMana * skillCostMultiplier);
+    
+    const currentMana = safeValue(game.player.mana, 0);
+    if (currentMana < finalMinMana) return;
+    
+    // 检查冷却时间
+    if (game.player.laser.cooldownTimer > 0) return;
     
     game.player.laser.active = true;
-    // 移除冷却时间限制，只要有魔力就能释放
+    // 注意：冷却时间应该在inputHandler.js中设置
     
     // 计算激光起点（玩家中心）
     game.player.laser.startX = game.player.x;
@@ -1446,8 +1338,20 @@ function updateLaser() {
         return;
     }
     
+    // 安全值处理函数
+    function safeValue(value, defaultValue = 0) {
+        return (typeof value === 'number' && !isNaN(value) && isFinite(value)) ? value : defaultValue;
+    }
+    
+    // 应用形态系统技能消耗加成
+    const formMultipliers = window.formSystem ? window.formSystem.getFormMultipliers() : { skillCost: 1 };
+    const skillCostMultiplier = safeValue(formMultipliers.skillCost, 1);
+    const baseCost = safeValue(game.player.laser.manaCost, 2.5);
+    const finalManaCost = baseCost * skillCostMultiplier;
+    
     // 消耗魔力
-    game.player.mana -= game.player.laser.manaCost;
+    game.player.mana = safeValue(game.player.mana, 0);
+    game.player.mana -= finalManaCost;
     if (game.player.mana < 0) {
         game.player.mana = 0;
         game.player.laser.active = false;
@@ -1686,10 +1590,25 @@ function checkCollisionAtPosition(x, y, radius) {
 
 // 等级提升检查
 function checkLevelUp() {
+    // 确保经验相关属性不为NaN
+    if (isNaN(game.player.exp)) game.player.exp = 0;
+    if (isNaN(game.player.expToNextLevel)) game.player.expToNextLevel = 100;
+    if (isNaN(game.player.level)) game.player.level = 1;
+    
     if (game.player.exp >= game.player.expToNextLevel) {
         game.player.level++;
         game.player.exp -= game.player.expToNextLevel;
         game.player.expToNextLevel = Math.floor(game.player.expToNextLevel * 1.2);
+        
+        // 确保所有属性不为NaN
+        if (isNaN(game.player.maxHealth)) game.player.maxHealth = 100;
+        if (isNaN(game.player.health)) game.player.health = game.player.maxHealth;
+        if (isNaN(game.player.maxMana)) game.player.maxMana = 50;
+        if (isNaN(game.player.mana)) game.player.mana = 0;
+        if (isNaN(game.player.maxStamina)) game.player.maxStamina = 100;
+        if (isNaN(game.player.stamina)) game.player.stamina = game.player.maxStamina;
+        if (isNaN(game.player.attackPower)) game.player.attackPower = 10;
+        if (isNaN(game.player.radius)) game.player.radius = 15;
         
         // 属性提升
         game.player.maxHealth += 20;
@@ -2291,8 +2210,18 @@ function handlePlayerEnemyCollision(enemy) {
         damage = Math.floor(damage * game.player.powerups.shield.damageReduction);
     }
     
+    // 应用形态系统伤害加成/减免
+    const formMultipliers = window.formSystem ? window.formSystem.getFormMultipliers() : { damageTaken: 1 };
+    const damageTakenMultiplier = formMultipliers.damageTaken || 1;
+    damage = Math.floor(damage * damageTakenMultiplier);
+    
+    // 确保玩家属性不为NaN
+    if (isNaN(game.player.health)) game.player.health = game.player.maxHealth || 100;
+    if (isNaN(game.player.rage)) game.player.rage = 0;
+    if (isNaN(game.player.hitRageMultiplier)) game.player.hitRageMultiplier = 1;
+    
     game.player.health -= damage;
-    game.player.rage += damage * game.player.hitRageMultiplier;
+    game.player.rage = Math.min(game.player.rage + damage * game.player.hitRageMultiplier, game.player.maxRage || 100);
     game.player.lastHitTime = 60;
     game.player.hitRageMultiplier = Math.min(3, game.player.hitRageMultiplier + 0.1);
     
@@ -2348,22 +2277,43 @@ function handleEnemyProjectileCollision(enemy, projectile, projectileIndex) {
         window.simpleDamageDisplay.addDamageText(damage, enemy.x, enemy.y, isCritical);
     }
     
+    // C形态爆炸子弹效果
+    if (projectile.isExplosive) {
+        // 创建爆炸效果
+        const explosionRadius = 60;
+        const explosionDamage = Math.floor(damage * 0.6); // 爆炸伤害为直接伤害的60%
+        createExplosion(enemy.x, enemy.y, explosionRadius, explosionDamage);
+        
+        // 爆炸粒子效果
+        for (let k = 0; k < 15; k++) {
+            game.particles.push({
+                x: enemy.x,
+                y: enemy.y,
+                dx: randomBetween(-8, 8),
+                dy: randomBetween(-8, 8),
+                radius: randomBetween(3, 6),
+                color: '#FF4444',
+                lifetime: 40
+            });
+        }
+    } else {
+        // 普通击中粒子效果
+        for (let k = 0; k < 5; k++) {
+            game.particles.push({
+                x: enemy.x,
+                y: enemy.y,
+                dx: randomBetween(-3, 3),
+                dy: randomBetween(-3, 3),
+                radius: randomBetween(1, 3),
+                color: '#FFD700',
+                lifetime: 20
+            });
+        }
+    }
+    
     // 移除投射物
     ObjectPool.recycleProjectile(projectile);
     game.projectiles.splice(projectileIndex, 1);
-    
-    // 击中粒子效果
-    for (let k = 0; k < 5; k++) {
-        game.particles.push({
-            x: enemy.x,
-            y: enemy.y,
-            dx: randomBetween(-3, 3),
-            dy: randomBetween(-3, 3),
-            radius: randomBetween(1, 3),
-            color: '#FFD700',
-            lifetime: 20
-        });
-    }
 }
 
 // 处理敌人死亡
@@ -2425,6 +2375,11 @@ function handleEnemyDeath(enemy, index) {
     game.score += scoreGain;
     
     // 怒气奖励 - 击杀敌人增加怒气
+    // 确保怒气相关属性不为NaN
+    if (isNaN(game.player.rage)) game.player.rage = 0;
+    if (isNaN(game.player.maxRage)) game.player.maxRage = 100;
+    if (isNaN(game.player.hitRageMultiplier)) game.player.hitRageMultiplier = 1;
+    
     const rageGain = 3 * game.player.hitRageMultiplier;
     game.player.rage = Math.min(game.player.rage + rageGain, game.player.maxRage);
     
@@ -3524,8 +3479,7 @@ window.createDamageNumber = createDamageNumber;
 window.createExperienceNumber = createExperienceNumber;
 window.createFloatingText = createFloatingText;
 window.randomBetween = randomBetween;
-window.activateWindFireWheels = activateWindFireWheels;
-window.updateWindFireWheels = updateWindFireWheels;
+// 风火轮函数已移至inputHandler.js
 window.activateLaser = activateLaser;
 window.updateLaser = updateLaser;
 window.checkCollisionAtPosition = checkCollisionAtPosition;
@@ -3576,8 +3530,7 @@ if (typeof module !== 'undefined' && module.exports) {
         enforceAreaMonsterLimits,
         updateFrenzyMode,
         randomBetween,
-        activateWindFireWheels,
-        updateWindFireWheels,
+        // 风火轮函数已移至inputHandler.js
         activateLaser,
         updateLaser,
         checkCollisionAtPosition,
