@@ -1,9 +1,80 @@
 # 球球大冒险开发记录
 
 ## 版本信息
-- 当前版本: 4.4.0
-- 开发日期: 2025-01-13 22:30
-- 主要功能: 形态切换系统实现
+- 当前版本: 4.4.2
+- 开发日期: 2025-01-13 23:50
+- 主要功能: 凌波微步buff系统
+
+## 版本 4.4.2 - 凌波微步buff系统
+**日期**: 2025-01-13 23:50  
+**用户需求**: 增加凌波微步buff，玩家击败一定数量怪物后有概率触发，效果为速度增加30%，闪避增加50%，不同形态触发概率不同
+
+### 功能实现
+- **buff名称**: lingboStep (凌波微步)
+- **触发条件**: 击杀10个怪物后有概率触发
+- **触发概率**: A形态25%，B形态15%，C形态8%
+- **持续时间**: 10秒
+- **速度效果**: 移动速度增加30%
+- **闪避效果**: 50%概率闪避敌人攻击
+- **视觉效果**: 蓝光闪烁光环
+- **闪避提示**: 成功闪避时显示"闪避!"蓝色浮动文本
+
+### 技术实现
+
+#### 1. buff定义 (`buffSystem.js`)
+- **lingboStep配置**: 新增凌波微步buff定义，包含形态相关触发概率
+- **击杀计数器**: killCount和lastLingboTriggerKill属性追踪击杀数
+- **initLingboStep()**: buff初始化，设置蓝光效果和触发提示
+- **updateLingboStep()**: 处理蓝光闪烁动画效果
+- **getLingboStepAura()**: 获取蓝光光环渲染信息
+- **recordKill()**: 记录击杀并检查触发条件
+- **checkLingboStepTrigger()**: 根据形态判断触发概率并激活buff
+- **getSpeedMultiplier()**: 获取速度加成倍数
+
+#### 2. 游戏逻辑集成 (`gameLogic.js`)
+- **击杀记录**: 在handleEnemyDeath中调用recordKill记录击杀
+- **闪避系统**: 在handlePlayerEnemyCollision中检查凌波微步buff并进行闪避判定
+- **闪避提示**: 成功闪避时显示蓝色"闪避!"浮动文本
+
+#### 3. 移动系统集成 (`inputHandler.js`)
+- **速度加成**: 在updatePlayer中应用buff系统的速度倍数
+- **最终速度计算**: finalSpeed *= buffSystem.getSpeedMultiplier()
+
+### 代码变更记录
+- **新增方法**: recordKill(), checkLingboStepTrigger(), getSpeedMultiplier(), getLingboStepAura(), initLingboStep(), updateLingboStep()
+- **修改文件**: buffSystem.js, gameLogic.js, inputHandler.js
+- **新增属性**: killCount, lastLingboTriggerKill, glowPhase, glowIntensity
+- **集成点**: 击杀记录、闪避检查、速度加成
+
+## 版本 4.4.1 - 生命汲取buff系统
+**日期**: 2025-01-13 23:45  
+**用户需求**: 增加一个buff，玩家攻击怪物时有概率触发回血buff，每秒恢复百分比血量
+
+### 功能实现
+- **buff名称**: lifeSteal (生命汲取)
+- **触发概率**: 15% (玩家攻击怪物时)
+- **持续时间**: 8秒
+- **回血效果**: 每秒恢复2%最大血量
+- **视觉效果**: 绿光闪烁光环
+
+### 技术实现
+
+#### 1. buff定义 (`buffSystem.js`)
+- **lifeSteal配置**: 在buffs对象中新增生命汲取buff定义
+- **initLifeSteal()**: buff初始化方法，设置绿光效果和回血计时器
+- **updateLifeSteal()**: buff更新逻辑，处理绿光闪烁和回血触发
+- **processLifeStealHeal()**: 回血处理方法，计算回血量并更新玩家血量
+- **getLifeStealAura()**: 获取绿光光环渲染信息
+- **checkLifeStealTrigger()**: 检查并触发生命汲取buff
+
+#### 2. 游戏逻辑集成 (`gameLogic.js`)
+- **碰撞检测集成**: 在handleEnemyProjectileCollision函数中添加生命汲取触发检查
+- **触发时机**: 玩家子弹击中敌人时调用checkLifeStealTrigger方法
+
+### 代码变更记录
+- **新增函数**: initLifeSteal, updateLifeSteal, processLifeStealHeal, getLifeStealAura, checkLifeStealTrigger
+- **修改文件**: buffSystem.js (新增生命汲取相关方法), gameLogic.js (集成触发检查)
+- **buff机制**: 15%概率触发，8秒持续，每秒2%最大血量回复，绿光视觉效果
 
 ## 版本 4.4.0 - 形态切换系统实现
 **日期**: 2025-01-13 22:30  

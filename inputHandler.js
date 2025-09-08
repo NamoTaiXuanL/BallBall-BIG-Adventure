@@ -534,6 +534,11 @@ function updatePlayer() {
             finalSpeed = window.formSystem.getModifiedMoveSpeed(finalSpeed);
         }
         
+        // 应用buff系统的速度加成 - v4.4.2
+        if (game.buffSystem && game.buffSystem.getSpeedMultiplier) {
+            finalSpeed *= game.buffSystem.getSpeedMultiplier();
+        }
+        
         if (game.keys['a'] || game.keys['arrowleft']) {
             if (!game.player.isDashing) {
                 game.player.dx = -finalSpeed;

@@ -8,6 +8,10 @@ class BuffSystem {
         this.activeBuffs = new Map(); // 存储激活的buff
         this.buffDefinitions = this.initBuffDefinitions();
         
+        // 击杀计数器 - v4.4.2
+        this.killCount = 0;
+        this.lastLingboTriggerKill = 0; // 上次触发凌波微步时的击杀数
+        
         // 调试日志记录
         this.logger = window.debugLogger;
         if (this.logger) {
@@ -60,6 +64,35 @@ class BuffSystem {
                     speedMultiplier: 0.5, // 速度每级增长倍数
                     sizeMultiplier: 0.25, // 体积每级增长倍数
                     rangeMultiplier: 0.5 // 范围每级增长倍数
+                }
+            },
+            lifeSteal: {
+                id: 'lifeSteal',
+                name: '生命汲取',
+                duration: 8000, // 8秒
+                dropChance: 0, // 不通过掉落获得，攻击时触发
+                triggerChance: 0.15, // 15%攻击触发概率
+                effects: {
+                    healPercentage: 0.02, // 每秒恢复2%最大血量
+                    healInterval: 1000, // 每1秒恢复一次
+                    greenGlow: true // 绿光效果
+                }
+            },
+            lingboStep: {
+                id: 'lingboStep',
+                name: '凌波微步',
+                duration: 10000, // 10秒
+                dropChance: 0, // 不通过掉落获得，击杀触发
+                killThreshold: 10, // 击杀10个怪物后有概率触发
+                triggerChance: {
+                    A: 0.25, // A形态25%概率
+                    B: 0.15, // B形态15%概率
+                    C: 0.08  // C形态8%概率
+                },
+                effects: {
+                    speedMultiplier: 1.3, // 速度增加30%
+                    dodgeChance: 0.5, // 闪避增加50%
+                    blueGlow: true // 蓝光效果
                 }
             }
         };
@@ -144,6 +177,10 @@ class BuffSystem {
             this.initSolarFlare(buff);
         } else if (buffId === 'levelEnhancement') {
             this.initLevelEnhancement(buff);
+        } else if (buffId === 'lifeSteal') {
+            this.initLifeSteal(buff);
+        } else if (buffId === 'lingboStep') {
+            this.initLingboStep(buff);
         }
         
         if (this.logger) {
@@ -210,6 +247,55 @@ class BuffSystem {
         }
     }
 
+    // 初始化生命汲取buff
+    initLifeSteal(buff) {
+        // 绿光闪烁效果参数
+        buff.greenGlowIntensity = 0;
+        buff.greenGlowDirection = 1;
+        buff.greenGlowSpeed = 0.12;
+        
+        // 回血计时器
+        buff.lastHealTime = 0;
+        
+        buff.isActive = true;
+        console.log('生命汲取buff已激活');
+        
+        if (this.logger) {
+            this.logger.logBuffActivation('lifeSteal初始化完成', {
+                buffId: buff.id,
+                isActive: buff.isActive,
+                effects: buff.effects,
+                startTime: buff.startTime
+            });
+        }
+    }
+
+    // 初始化凌波微步buff - v4.4.2
+    initLingboStep(buff) {
+        console.log('[BuffSystem] 凌波微步buff已激活');
+        
+        // 设置蓝光闪烁效果参数
+        buff.glowPhase = 0;
+        buff.glowIntensity = 0.8;
+        
+        // 激活buff
+        buff.active = true;
+        
+        // 创建激活提示
+        if (this.game && this.game.player) {
+            if (window.createFloatingText) {
+                window.createFloatingText(
+                    this.game.player.x, 
+                    this.game.player.y - 40, 
+                    '凌波微步!', 
+                    '#4444FF', 
+                    120, 
+                    1.5
+                );
+            }
+        }
+    }
+
     // 更新buff状态
     update(deltaTime) {
         const currentTime = Date.now();
@@ -253,6 +339,10 @@ class BuffSystem {
             this.updateSolarFlare(buff, deltaTime);
         } else if (buffId === 'levelEnhancement') {
             this.updateLevelEnhancement(buff, deltaTime);
+        } else if (buffId === 'lifeSteal') {
+            this.updateLifeSteal(buff, deltaTime);
+        } else if (buffId === 'lingboStep') {
+            this.updateLingboStep(buff, deltaTime);
         }
     }
 
@@ -310,6 +400,38 @@ class BuffSystem {
         buff.isActive = true;
     }
 
+    // 更新生命汲取效果
+    updateLifeSteal(buff, deltaTime) {
+        // 更新绿光闪烁
+        buff.greenGlowIntensity += buff.greenGlowDirection * buff.greenGlowSpeed;
+        if (buff.greenGlowIntensity >= 1) {
+            buff.greenGlowIntensity = 1;
+            buff.greenGlowDirection = -1;
+        } else if (buff.greenGlowIntensity <= 0.2) {
+            buff.greenGlowIntensity = 0.2;
+            buff.greenGlowDirection = 1;
+        }
+
+        // 处理回血效果
+        const currentTime = Date.now();
+        if (currentTime - buff.lastHealTime >= buff.effects.healInterval) {
+            this.processLifeStealHeal(buff);
+            buff.lastHealTime = currentTime;
+        }
+    }
+
+    // 更新凌波微步效果 - v4.4.2
+    updateLingboStep(buff, deltaTime) {
+        // 更新蓝光闪烁效果
+        buff.glowPhase += 0.15;
+        if (buff.glowPhase > Math.PI * 2) {
+            buff.glowPhase = 0;
+        }
+        
+        // 计算闪烁强度
+        buff.glowIntensity = 0.5 + 0.3 * Math.sin(buff.glowPhase);
+    }
+
     // 处理灼烧伤害
     processBurnDamage(buff) {
         if (!this.game || !this.game.player || !this.game.enemies) return;
@@ -354,6 +476,43 @@ class BuffSystem {
                 }
             }
         });
+    }
+
+    // 处理生命汲取回血效果
+    processLifeStealHeal(buff) {
+        if (!this.game || !this.game.player) return;
+
+        const player = this.game.player;
+        const healAmount = Math.floor(player.maxHealth * buff.effects.healPercentage);
+        
+        // 确保不超过最大血量
+        const actualHeal = Math.min(healAmount, player.maxHealth - player.health);
+        
+        if (actualHeal > 0) {
+            player.health += actualHeal;
+            
+            // 创建回血数字显示
+            if (this.game.createDamageNumber) {
+                this.game.createDamageNumber(player.x, player.y - 30, `+${actualHeal}`, false, '#00FF00');
+            }
+            
+            // 创建回血粒子效果
+            if (this.game.createParticle) {
+                for (let i = 0; i < 5; i++) {
+                    this.game.createParticle({
+                        x: player.x + (Math.random() - 0.5) * 40,
+                        y: player.y + (Math.random() - 0.5) * 40,
+                        vx: (Math.random() - 0.5) * 3,
+                        vy: (Math.random() - 0.5) * 3 - 1,
+                        color: '#00FF00',
+                        life: 40,
+                        size: 4
+                    });
+                }
+            }
+            
+            console.log(`生命汲取回血: +${actualHeal} (${player.health}/${player.maxHealth})`);
+        }
     }
 
     // 停用buff
@@ -426,11 +585,124 @@ class BuffSystem {
         };
     }
 
+    // 获取生命汲取光环信息
+    getLifeStealAura(playerX, playerY) {
+        const buff = this.getBuff('lifeSteal');
+        if (!buff) return null;
+
+        return {
+            x: playerX,
+            y: playerY,
+            intensity: buff.greenGlowIntensity,
+            healPercentage: buff.effects.healPercentage
+        };
+    }
+
+    // 获取凌波微步光环信息 - v4.4.2
+    getLingboStepAura(playerX, playerY) {
+        const buff = this.getBuff('lingboStep');
+        if (!buff || !buff.active) {
+            return null;
+        }
+        
+        return {
+            x: playerX,
+            y: playerY,
+            radius: 35 + 10 * buff.glowIntensity,
+            color: `rgba(68, 68, 255, ${buff.glowIntensity * 0.6})`,
+            intensity: buff.glowIntensity
+        };
+    }
+
     // 获取剩余时间（毫秒）
     getBuffRemainingTime(buffId) {
         const buff = this.getBuff(buffId);
         if (!buff) return 0;
         return Math.max(0, buff.endTime - Date.now());
+    }
+    
+    // 获取速度加成 - v4.4.2
+    getSpeedMultiplier() {
+        let speedMultiplier = 1.0;
+        
+        // 凌波微步buff提供30%速度增加
+        if (this.isBuffActive('lingboStep')) {
+            speedMultiplier *= 1.3; // 30%速度增加
+        }
+        
+        return speedMultiplier;
+    }
+
+    // 攻击时检查生命汲取buff触发（玩家攻击怪物时调用）
+    checkLifeStealTrigger() {
+        // 如果已经有生命汲取buff，不重复触发
+        if (this.hasBuff('lifeSteal')) {
+            return false;
+        }
+
+        const lifeStealDef = this.buffDefinitions.lifeSteal;
+        if (Math.random() < lifeStealDef.triggerChance) {
+            this.activateBuff('lifeSteal');
+            console.log('攻击触发生命汲取buff！');
+            
+            // 创建触发提示
+            if (this.game && this.game.player && this.game.createFloatingText) {
+                this.game.createFloatingText(
+                    this.game.player.x,
+                    this.game.player.y - 50,
+                    '生命汲取！',
+                    '#00FF00',
+                    1.5,
+                    1.5
+                );
+            }
+            
+            return true;
+        }
+        return false;
+    }
+
+    // 记录击杀并检查凌波微步触发 - v4.4.2
+    recordKill() {
+        this.killCount++;
+        
+        // 检查是否达到触发条件
+        const killsSinceLastTrigger = this.killCount - this.lastLingboTriggerKill;
+        const lingboDef = this.buffDefinitions.lingboStep;
+        
+        if (killsSinceLastTrigger >= lingboDef.killThreshold) {
+            this.checkLingboStepTrigger();
+        }
+    }
+
+    // 检查凌波微步触发 - v4.4.2
+    checkLingboStepTrigger() {
+        // 如果已经有凌波微步buff，不重复触发
+        if (this.isBuffActive('lingboStep')) {
+            return false;
+        }
+        
+        // 获取当前形态
+        let currentForm = 'B'; // 默认B形态
+        if (this.game && this.game.formSystem) {
+            currentForm = this.game.formSystem.currentForm;
+        }
+        
+        // 根据形态获取触发概率
+        const lingboDef = this.buffDefinitions.lingboStep;
+        const triggerChance = lingboDef.triggerChance[currentForm] || 0.15;
+        
+        // 概率判定
+        if (Math.random() < triggerChance) {
+            // 触发成功，激活buff
+            this.activateBuff('lingboStep');
+            this.lastLingboTriggerKill = this.killCount;
+            
+            console.log(`[BuffSystem] 凌波微步触发成功! 形态:${currentForm}, 概率:${(triggerChance*100).toFixed(1)}%`);
+            return true;
+        }
+        
+        return false;
     }
 
     // 清除所有buff

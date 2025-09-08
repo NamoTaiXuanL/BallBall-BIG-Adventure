@@ -2202,6 +2202,16 @@ function handlePlayerEnemyCollision(enemy) {
         return;
     }
     
+    // 凌波微步闪避检查 - v4.4.2
+    if (game.buffSystem && game.buffSystem.isBuffActive('lingboStep')) {
+        const dodgeChance = 0.5; // 50%闪避率
+        if (Math.random() < dodgeChance) {
+            // 闪避成功，显示提示
+            createFloatingText(game.player.x, game.player.y - 30, "闪避!", "#00BFFF", 80, 1.3);
+            return; // 完全避免伤害
+        }
+    }
+    
     // 计算伤害
     let damage = enemy.damage || 10;
     
@@ -2277,6 +2287,11 @@ function handleEnemyProjectileCollision(enemy, projectile, projectileIndex) {
         window.simpleDamageDisplay.addDamageText(damage, enemy.x, enemy.y, isCritical);
     }
     
+    // 检查生命汲取buff触发 - v4.4.1
+    if (game.buffSystem && game.buffSystem.checkLifeStealTrigger) {
+        game.buffSystem.checkLifeStealTrigger();
+    }
+    
     // C形态爆炸子弹效果
     if (projectile.isExplosive) {
         // 创建爆炸效果
@@ -2348,6 +2363,11 @@ function handleEnemyDeath(enemy, index) {
                 createFloatingText(enemy.x, enemy.y - 30, '日炎!', '#FF4444', 120, 1.5);
             }
         }
+    }
+    
+    // 记录击杀，检查凌波微步buff触发 - v4.4.2
+    if (game.buffSystem && game.buffSystem.recordKill) {
+        game.buffSystem.recordKill();
     }
     
     // 经验和分数奖励 - 基于等级的大幅提升
